@@ -152,7 +152,10 @@ fun LauncherScreen(
             onPageChanged = viewModel::onPageChanged,
             onAppClick = viewModel::launchApp,
             onAppLongClick = { pkg -> appToMove = pkg },
-            onSwipeUp = viewModel::openDrawer
+            onSwipeUp = viewModel::openDrawer,
+            widgetIds = uiState.activeWidgetIds,
+            widgetManager = viewModel.widgetManager,
+            onRemoveWidget = viewModel::removeWidget
         )
 
         // App drawer overlay
@@ -245,26 +248,7 @@ fun LauncherScreen(
             )
         }
 
-        // Display active widgets at the top of home screen
-        android.util.Log.e("DZEN_WIDGET", "Render: activeWidgetIds=${uiState.activeWidgetIds}")
-        if (uiState.activeWidgetIds.isNotEmpty()) {
-            Column(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 8.dp)
-                    .fillMaxWidth()
-            ) {
-                uiState.activeWidgetIds.forEach { widgetId ->
-                    key(widgetId) {
-                        WidgetView(
-                            widgetManager = viewModel.widgetManager,
-                            widgetId = widgetId,
-                            onRemove = { viewModel.removeWidget(widgetId) }
-                        )
-                    }
-                }
-            }
-        }
+        // Widgets are now rendered inside HomeScreenContent, not as overlay
     }
 }
 
@@ -274,7 +258,10 @@ fun HomeScreenContent(
     onPageChanged: (Int) -> Unit,
     onAppClick: (String) -> Unit,
     onAppLongClick: (String) -> Unit,
-    onSwipeUp: () -> Unit
+    onSwipeUp: () -> Unit,
+    widgetIds: List<Int> = emptyList(),
+    widgetManager: WidgetManager? = null,
+    onRemoveWidget: (Int) -> Unit = {}
 ) {
     val pagerState = rememberPagerState(pageCount = { pages.size.coerceAtLeast(1) })
     val statusBarPadding = WindowInsets.statusBars.asPaddingValues()
@@ -293,6 +280,19 @@ fun HomeScreenContent(
                 }
             }
     ) {
+        // Widgets inline (not overlay)
+        if (widgetIds.isNotEmpty() && widgetManager != null) {
+            widgetIds.forEach { widgetId ->
+                key(widgetId) {
+                    WidgetView(
+                        widgetManager = widgetManager,
+                        widgetId = widgetId,
+                        onRemove = { onRemoveWidget(widgetId) }
+                    )
+                }
+            }
+        }
+
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.weight(1f)
@@ -749,26 +749,44 @@ fun WidgetView(
         androidx.compose.ui.viewinterop.AndroidView(
             factory = { _ ->
                 try {
-                    val activityWm = activity?.widgetManager ?: widgetManager
-                    val appWidgetManager = AppWidgetManager.getInstance(activity ?: return@AndroidView android.widget.FrameLayout(activity!!))
+                    val activityCtx = activity ?: return@AndroidView android.widget.FrameLayout(
+                        widgetManager.context
+                    )
+                    val appWidgetManager = AppWidgetManager.getInstance(activityCtx)
                     val widgetInfo = appWidgetManager.getAppWidgetInfo(widgetId)
                     if (widgetInfo != null) {
-                        val view = activityWm.appWidgetHost.createView(activity, widgetId, widgetInfo)
-                        view.setAppWidget(widgetId, widgetInfo)
-                        android.util.Log.e("DZEN_WIDGET", "Created widget view for id=$widgetId, size=${widgetInfo.minWidth}x${widgetInfo.minHeight}")
-                        view
+                        val hostView = (activity?.widgetManager ?: widgetManager)
+                            .appWidgetHost.createView(activityCtx, widgetId, widgetInfo)
+                        hostView.setAppWidget(widgetId, widgetInfo)
+
+                        // Force a visible size
+                        val density = activityCtx.resources.displayMetrics.density
+                        val minW = (widgetInfo.minWidth * density).toInt()
+                        val minH = (widgetInfo.minHeight * density).toInt().coerceAtLeast((100 * density).toInt())
+                        hostView.minimumWidth = minW
+                        hostView.minimumHeight = minH
+
+                        // Wrap in a container with background for visibility
+                        android.widget.FrameLayout(activityCtx).apply {
+                            setBackgroundColor(0x40000000) // semi-transparent dark
+                            setPadding(8, 8, 8, 8)
+                            addView(hostView, android.widget.FrameLayout.LayoutParams(
+                                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                                minH
+                            ))
+                        }
                     } else {
-                        android.util.Log.e("DZEN_WIDGET", "No widget info for id=$widgetId")
-                        android.widget.FrameLayout(activity)
+                        android.widget.FrameLayout(activityCtx)
                     }
                 } catch (e: Exception) {
-                    android.util.Log.e("DZEN_WIDGET", "Error creating widget view: ${e.message}")
-                    android.widget.FrameLayout(activity ?: return@AndroidView android.widget.TextView(activity!!).apply { text = "Widget error" })
+                    android.util.Log.e("DZEN_WIDGET", "Error creating widget: ${e.message}")
+                    android.widget.FrameLayout(
+                        activity ?: widgetManager.context
+                    )
                 }
             },
             modifier = Modifier
                 .fillMaxWidth()
-                .height(100.dp)
         )
 
         if (showRemove) {

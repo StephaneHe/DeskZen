@@ -16,7 +16,7 @@ class DeskZenWidgetHost(context: Context, hostId: Int) : AppWidgetHost(context, 
     }
 }
 
-class WidgetManager(private val context: Context) {
+class WidgetManager(val context: Context) {
 
     val appWidgetHost = DeskZenWidgetHost(context, DeskZenWidgetHost.HOST_ID)
     val appWidgetManager: AppWidgetManager = AppWidgetManager.getInstance(context)
