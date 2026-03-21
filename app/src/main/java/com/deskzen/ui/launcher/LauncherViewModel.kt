@@ -42,6 +42,9 @@ class LauncherViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(LauncherUiState())
     val uiState: StateFlow<LauncherUiState> = _uiState.asStateFlow()
 
+    // Custom folders created by the user (name -> isCustom)
+    private val customFolderNames = mutableSetOf<String>()
+
     init {
         loadApps()
     }
@@ -51,7 +54,7 @@ class LauncherViewModel @Inject constructor(
             try {
                 val apps = appRepository.getInstalledApps(includeSystem = true)
                 val suggestions = categorizer.categorize(apps)
-                val pages = buildPagesFromSuggestions(apps, suggestions)
+                val pages = buildPages(apps, suggestions)
 
                 _uiState.value = _uiState.value.copy(
                     allApps = apps,
@@ -65,67 +68,98 @@ class LauncherViewModel @Inject constructor(
         }
     }
 
-    private fun buildPagesFromSuggestions(
+    private fun buildPages(
         apps: List<AppInfo>,
         suggestions: List<ThemeSuggestion>
     ): List<ScreenPage> {
-        val pages = mutableListOf<ScreenPage>()
-        val page1Items = mutableListOf<ScreenItem>()
-        var position = 0
+        val allItems = mutableListOf<ScreenItem>()
+        val assignedPackages = mutableSetOf<String>()
 
-        // All categories with 2+ apps become folders
-        val categories = suggestions
+        // 1. Custom folders first (user-created) — try to fill them with IA
+        for (customName in customFolderNames) {
+            val cleanName = customName.replace(Regex("^\\p{So}\\s*"), "").trim()
+            val matchedApps = findAppsForCustomFolder(cleanName, apps, assignedPackages)
+            assignedPackages.addAll(matchedApps.map { it.packageName })
+            allItems.add(
+                ScreenItem.Folder(
+                    position = allItems.size,
+                    name = customName,
+                    apps = matchedApps
+                )
+            )
+        }
+
+        // 2. IA categories (only apps not already assigned)
+        val iaCategories = suggestions
             .filter { it.themeName != "Autres" && it.apps.size >= 2 }
             .sortedByDescending { it.apps.size }
 
-        for (theme in categories) {
-            if (position >= 20) break
-            page1Items.add(
+        for (theme in iaCategories) {
+            val folderName = "${theme.themeIcon} ${theme.themeName}"
+            // Skip if a custom folder covers this theme
+            if (customFolderNames.any { it.contains(theme.themeName, ignoreCase = true) }) continue
+
+            val remainingApps = theme.apps.filter { it.packageName !in assignedPackages }
+            if (remainingApps.isEmpty()) continue
+
+            assignedPackages.addAll(remainingApps.map { it.packageName })
+            allItems.add(
                 ScreenItem.Folder(
-                    position = position,
-                    name = "${theme.themeIcon} ${theme.themeName}",
-                    apps = theme.apps
+                    position = allItems.size,
+                    name = folderName,
+                    apps = remainingApps
                 )
             )
-            position++
         }
 
-        pages.add(ScreenPage(pageIndex = 0, items = page1Items))
-
-        // Page 2: overflow folders + "Autres"
-        if (position >= 20 || suggestions.any { it.themeName == "Autres" && it.apps.isNotEmpty() }) {
-            val page2Items = mutableListOf<ScreenItem>()
-            var pos2 = 0
-
-            // Overflow categories
-            for (theme in categories.drop(20)) {
-                if (pos2 >= 20) break
-                page2Items.add(
-                    ScreenItem.Folder(
-                        position = pos2,
-                        name = "${theme.themeIcon} ${theme.themeName}",
-                        apps = theme.apps
-                    )
+        // 3. "Autres" — unassigned apps
+        val autresApps = apps.filter { it.packageName !in assignedPackages }
+        if (autresApps.isNotEmpty()) {
+            allItems.add(
+                ScreenItem.Folder(
+                    position = allItems.size,
+                    name = "📱 Autres",
+                    apps = autresApps
                 )
-                pos2++
-            }
-
-            // "Autres" as individual apps
-            val autres = suggestions.find { it.themeName == "Autres" }
-            if (autres != null) {
-                for (app in autres.apps) {
-                    if (pos2 >= 20) break
-                    page2Items.add(ScreenItem.AppShortcut(position = pos2, appInfo = app))
-                    pos2++
-                }
-            }
-
-            if (page2Items.isNotEmpty()) {
-                pages.add(ScreenPage(pageIndex = 1, items = page2Items))
-            }
+            )
         }
 
-        return pages
+        // Split into pages of 20
+        val pages = allItems.chunked(20).mapIndexed { pageIndex, items ->
+            ScreenPage(
+                pageIndex = pageIndex,
+                items = items.mapIndexed { idx, item ->
+                    when (item) {
+                        is ScreenItem.Folder -> item.copy(position = idx)
+                        is ScreenItem.AppShortcut -> item.copy(position = idx)
+                    }
+                }
+            )
+        }
+
+        return pages.ifEmpty { listOf(ScreenPage(0, emptyList())) }
+    }
+
+    private fun findAppsForCustomFolder(
+        folderName: String,
+        allApps: List<AppInfo>,
+        alreadyAssigned: Set<String>
+    ): List<AppInfo> {
+        val keywords = folderName.lowercase().split(" ", ",", "-", "&", "/")
+            .filter { it.length >= 3 }
+
+        if (keywords.isEmpty()) return emptyList()
+
+        return allApps.filter { app ->
+            if (app.packageName in alreadyAssigned) return@filter false
+            val pkg = app.packageName.lowercase()
+            val label = app.label.lowercase()
+            val category = app.category?.lowercase() ?: ""
+
+            keywords.any { kw ->
+                pkg.contains(kw) || label.contains(kw) || category.contains(kw)
+            }
+        }
     }
 
     // === Folder management ===
@@ -139,50 +173,25 @@ class LauncherViewModel @Inject constructor(
     }
 
     fun addFolder(name: String) {
-        // Create empty folder and let IA dispatch apps into it
-        val currentPages = _uiState.value.pages.toMutableList()
-        val page = currentPages.firstOrNull() ?: return
+        val iconName = pickEmojiForFolder(name)
+        val fullName = "$iconName $name"
+        customFolderNames.add(fullName)
 
-        val maxPosition = page.items.maxOfOrNull { it.position } ?: -1
-        val newPosition = maxPosition + 1
-
-        if (newPosition >= 20) {
-            // Page full, add to page 2
-            if (currentPages.size < 2) {
-                currentPages.add(ScreenPage(pageIndex = 1, items = emptyList()))
-            }
-            val page2 = currentPages[1]
-            val maxPos2 = page2.items.maxOfOrNull { it.position } ?: -1
-            val newFolder = ScreenItem.Folder(position = maxPos2 + 1, name = name, apps = emptyList())
-            currentPages[1] = page2.copy(items = page2.items + newFolder)
-        } else {
-            val newFolder = ScreenItem.Folder(position = newPosition, name = name, apps = emptyList())
-            currentPages[0] = page.copy(items = page.items + newFolder)
-        }
-
-        _uiState.value = _uiState.value.copy(pages = currentPages)
+        // Re-dispatch with the new folder
+        reDispatchWithIA()
     }
 
     fun removeFolder(folderName: String) {
-        val currentPages = _uiState.value.pages.map { page ->
-            page.copy(items = page.items.filter { item ->
-                !(item is ScreenItem.Folder && item.name == folderName)
-            })
-        }
-        _uiState.value = _uiState.value.copy(pages = currentPages)
-        // Re-dispatch to redistribute orphaned apps
+        customFolderNames.remove(folderName)
         reDispatchWithIA()
     }
 
     fun renameFolder(oldName: String, newName: String) {
-        val currentPages = _uiState.value.pages.map { page ->
-            page.copy(items = page.items.map { item ->
-                if (item is ScreenItem.Folder && item.name == oldName) {
-                    item.copy(name = newName)
-                } else item
-            })
+        if (customFolderNames.remove(oldName)) {
+            val iconName = pickEmojiForFolder(newName)
+            customFolderNames.add("$iconName $newName")
         }
-        _uiState.value = _uiState.value.copy(pages = currentPages)
+        reDispatchWithIA()
     }
 
     fun reDispatchWithIA() {
@@ -190,22 +199,15 @@ class LauncherViewModel @Inject constructor(
             val apps = _uiState.value.allApps
             if (apps.isEmpty()) return@launch
 
-            // Get current custom folders (user-created)
-            val currentFolders = _uiState.value.pages
-                .flatMap { it.items }
-                .filterIsInstance<ScreenItem.Folder>()
-                .map { it.name }
-
-            // Re-categorize all apps
             val suggestions = categorizer.categorize(apps)
-            val pages = buildPagesFromSuggestions(apps, suggestions)
+            val pages = buildPages(apps, suggestions)
 
             _uiState.value = _uiState.value.copy(
                 suggestions = suggestions,
                 pages = pages
             )
 
-            Timber.d("Re-dispatched ${apps.size} apps into ${suggestions.size} categories")
+            Timber.d("Re-dispatched ${apps.size} apps, ${customFolderNames.size} custom folders preserved")
         }
     }
 
@@ -214,6 +216,66 @@ class LauncherViewModel @Inject constructor(
             .flatMap { it.items }
             .filterIsInstance<ScreenItem.Folder>()
             .map { it.name to it.apps.size }
+    }
+
+    private fun pickEmojiForFolder(name: String): String {
+        val lower = name.lowercase()
+        val emojiMap = mapOf(
+            // Finance
+            "financ" to "💳", "banque" to "💳", "bank" to "💳", "argent" to "💰",
+            "money" to "💰", "crypto" to "₿", "trading" to "📈", "bourse" to "📈",
+            // Social
+            "social" to "💬", "message" to "💬", "chat" to "💬", "communic" to "💬",
+            // Media
+            "media" to "🎬", "video" to "🎬", "film" to "🎬", "stream" to "📺",
+            "musique" to "🎵", "music" to "🎵", "audio" to "🎵", "podcast" to "🎙️",
+            // Games
+            "jeu" to "🎮", "game" to "🎮",
+            // Photo
+            "photo" to "📷", "camera" to "📷", "image" to "🖼️",
+            // Navigation
+            "navig" to "🗺️", "transport" to "🚗", "map" to "🗺️", "taxi" to "🚕",
+            "voyage" to "✈️", "travel" to "✈️", "hotel" to "🏨",
+            // Health
+            "sante" to "❤️", "health" to "❤️", "sport" to "💪", "fitness" to "💪",
+            // Shopping
+            "shop" to "🛒", "achat" to "🛒", "boutique" to "🛍️",
+            // Food
+            "food" to "🍔", "restaurant" to "🍽️", "cuisine" to "👨‍🍳", "livraison" to "🛵",
+            // Work
+            "product" to "📊", "travail" to "💼", "work" to "💼", "bureau" to "🏢",
+            "emploi" to "💼", "job" to "💼",
+            // Education
+            "educ" to "📚", "learn" to "📚", "cours" to "📚", "langue" to "🌍",
+            // News
+            "news" to "📰", "actu" to "📰", "journal" to "📰", "info" to "ℹ️",
+            // System
+            "systeme" to "🔧", "system" to "🔧", "outil" to "🔧", "util" to "🔧",
+            "securite" to "🔒", "security" to "🔒", "vpn" to "🔒",
+            // Home
+            "maison" to "🏠", "immo" to "🏠", "immobilier" to "🏠",
+            // Family
+            "famille" to "👨‍👩‍👧", "enfant" to "👶", "kids" to "👶",
+            // Dev
+            "dev" to "💻", "code" to "💻", "program" to "💻",
+            // AI
+            "ia" to "🤖", "ai" to "🤖", "intelligen" to "🤖"
+        )
+
+        for ((keyword, emoji) in emojiMap) {
+            if (lower.contains(keyword)) return emoji
+        }
+
+        // Fallback: pick based on first letter
+        return when (lower.firstOrNull()) {
+            in 'a'..'d' -> "📂"
+            in 'e'..'h' -> "📁"
+            in 'i'..'l' -> "🗂️"
+            in 'm'..'p' -> "📋"
+            in 'q'..'t' -> "🏷️"
+            in 'u'..'z' -> "📌"
+            else -> "📂"
+        }
     }
 
     // === Navigation ===
