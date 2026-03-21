@@ -224,10 +224,6 @@ fun LauncherScreen(
         // Widget picker
         if (uiState.showWidgetPicker) {
             val activity = context as? com.deskzen.MainActivity
-            // Set up callback for when widget is ready
-            activity?.onWidgetReady = { widgetId ->
-                viewModel.addWidget(widgetId)
-            }
 
             WidgetPickerSheet(
                 widgets = viewModel.getAvailableWidgets(),
@@ -235,13 +231,13 @@ fun LauncherScreen(
                     val widgetId = viewModel.widgetManager.allocateWidgetId()
                     val bound = viewModel.widgetManager.bindWidget(widgetId, providerInfo)
                     if (bound) {
-                        // Already bound — add directly
+                        // Already bound — add directly and persist
                         viewModel.addWidget(widgetId)
                     } else {
                         // Need user permission — launch system bind dialog
-                        activity?.pendingWidgetId = widgetId
+                        // Result handled in MainActivity.widgetBindLauncher
                         val bindIntent = viewModel.widgetManager.getBindIntent(widgetId, providerInfo)
-                        activity?.widgetBindLauncher?.launch(bindIntent)
+                        activity?.requestWidgetBind(widgetId, bindIntent)
                     }
                     viewModel.hideWidgetPicker()
                 },
