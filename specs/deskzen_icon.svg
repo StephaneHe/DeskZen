@@ -1,0 +1,37 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <clipPath id="circle-clip"><circle cx="256" cy="256" r="256"/></clipPath>
+    <linearGradient id="bg-grad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#2D5A3D"/>
+      <stop offset="100%" stop-color="#1E3F2B"/>
+    </linearGradient>
+    <linearGradient id="gold-grad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#E8A849"/>
+      <stop offset="100%" stop-color="#D4963E"/>
+    </linearGradient>
+  </defs>
+
+  <circle cx="256" cy="256" r="256" fill="url(#bg-grad)"/>
+
+  <g clip-path="url(#circle-clip)">
+    <circle cx="400" cy="420" r="140" fill="#234A31" opacity="0.4"/>
+    <circle cx="120" cy="120" r="90" fill="#3A7050" opacity="0.25"/>
+
+    <g transform="translate(256,248)">
+      <rect x="-90" y="-90" width="76" height="76" rx="16" fill="#F8FAF9" opacity="0.92"/>
+      <rect x="14" y="-90" width="76" height="76" rx="16" fill="#F8FAF9" opacity="0.92"/>
+      <rect x="-90" y="14" width="76" height="76" rx="16" fill="#F8FAF9" opacity="0.92"/>
+      <rect x="14" y="14" width="76" height="76" rx="16" fill="#F8FAF9" opacity="0.72"/>
+
+      <circle cx="-52" cy="-52" r="17" fill="#5B7C6B"/>
+      <circle cx="52" cy="-52" r="17" fill="#E8A849"/>
+      <circle cx="-52" cy="52" r="17" fill="#8FD4A4"/>
+
+      <g transform="translate(52,52)">
+        <circle r="17" fill="url(#gold-grad)" opacity="0.9"/>
+        <path d="M-6,-1.5 L0,-9 L6,-1.5" fill="none" stroke="#FFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <line x1="0" y1="-7" x2="0" y2="6" stroke="#FFF" stroke-width="2" stroke-linecap="round"/>
+      </g>
+    </g>
+  </g>
+</svg>
