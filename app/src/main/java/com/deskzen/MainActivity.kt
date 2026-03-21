@@ -6,9 +6,9 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import com.deskzen.ui.launcher.LauncherScreen
+import com.deskzen.ui.launcher.LauncherViewModel
 import com.deskzen.ui.theme.DeskZenTheme
 import dagger.hilt.android.AndroidEntryPoint
 import timber.log.Timber
@@ -16,32 +16,28 @@ import timber.log.Timber
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
-    private var pendingWidgetCallback: ((Boolean) -> Unit)? = null
+    // Pending widget ID waiting for bind/config result
+    var pendingWidgetId: Int = -1
+    var onWidgetReady: ((Int) -> Unit)? = null
 
-    val widgetBindLauncher: ActivityResultLauncher<Intent> =
-        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            val success = result.resultCode == RESULT_OK
-            Timber.d("Widget bind result: $success")
-            pendingWidgetCallback?.invoke(success)
-            pendingWidgetCallback = null
+    val widgetBindLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        Timber.d("Widget bind result: ${result.resultCode}, widgetId: $pendingWidgetId")
+        if (result.resultCode == RESULT_OK && pendingWidgetId != -1) {
+            onWidgetReady?.invoke(pendingWidgetId)
         }
-
-    val widgetConfigLauncher: ActivityResultLauncher<Intent> =
-        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            val success = result.resultCode == RESULT_OK
-            Timber.d("Widget config result: $success")
-            pendingWidgetCallback?.invoke(success)
-            pendingWidgetCallback = null
-        }
-
-    fun requestWidgetBind(intent: Intent, callback: (Boolean) -> Unit) {
-        pendingWidgetCallback = callback
-        widgetBindLauncher.launch(intent)
+        pendingWidgetId = -1
     }
 
-    fun launchWidgetConfig(intent: Intent, callback: (Boolean) -> Unit) {
-        pendingWidgetCallback = callback
-        widgetConfigLauncher.launch(intent)
+    val widgetConfigLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        Timber.d("Widget config result: ${result.resultCode}, widgetId: $pendingWidgetId")
+        if (result.resultCode == RESULT_OK && pendingWidgetId != -1) {
+            onWidgetReady?.invoke(pendingWidgetId)
+        }
+        pendingWidgetId = -1
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {

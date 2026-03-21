@@ -222,48 +222,24 @@ fun LauncherScreen(
         // Widget picker
         if (uiState.showWidgetPicker) {
             val activity = context as? com.deskzen.MainActivity
+            // Set up callback for when widget is ready
+            activity?.onWidgetReady = { widgetId ->
+                viewModel.addWidget(widgetId)
+            }
+
             WidgetPickerSheet(
                 widgets = viewModel.getAvailableWidgets(),
                 onWidgetSelected = { providerInfo ->
                     val widgetId = viewModel.widgetManager.allocateWidgetId()
                     val bound = viewModel.widgetManager.bindWidget(widgetId, providerInfo)
                     if (bound) {
-                        // Check if widget needs configuration
-                        val configActivity = providerInfo.configure
-                        if (configActivity != null) {
-                            val configIntent = Intent(AppWidgetManager.ACTION_APPWIDGET_CONFIGURE).apply {
-                                component = configActivity
-                                putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
-                            }
-                            activity?.launchWidgetConfig(configIntent) { success ->
-                                if (success) viewModel.addWidget(widgetId)
-                                else viewModel.widgetManager.deallocateWidgetId(widgetId)
-                            }
-                        } else {
-                            viewModel.addWidget(widgetId)
-                        }
+                        // Already bound — add directly
+                        viewModel.addWidget(widgetId)
                     } else {
-                        // Request bind permission via system dialog
+                        // Need user permission — launch system bind dialog
+                        activity?.pendingWidgetId = widgetId
                         val bindIntent = viewModel.widgetManager.getBindIntent(widgetId, providerInfo)
-                        activity?.requestWidgetBind(bindIntent) { success ->
-                            if (success) {
-                                val configActivity2 = providerInfo.configure
-                                if (configActivity2 != null) {
-                                    val configIntent = Intent(AppWidgetManager.ACTION_APPWIDGET_CONFIGURE).apply {
-                                        component = configActivity2
-                                        putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
-                                    }
-                                    activity.launchWidgetConfig(configIntent) { configSuccess ->
-                                        if (configSuccess) viewModel.addWidget(widgetId)
-                                        else viewModel.widgetManager.deallocateWidgetId(widgetId)
-                                    }
-                                } else {
-                                    viewModel.addWidget(widgetId)
-                                }
-                            } else {
-                                viewModel.widgetManager.deallocateWidgetId(widgetId)
-                            }
-                        }
+                        activity?.widgetBindLauncher?.launch(bindIntent)
                     }
                     viewModel.hideWidgetPicker()
                 },
