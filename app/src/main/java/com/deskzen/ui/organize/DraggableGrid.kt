@@ -28,9 +28,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import com.deskzen.domain.model.ScreenItem
 import com.deskzen.domain.model.ScreenPage
-import com.deskzen.ui.homescreen.EmptySlot
-import com.deskzen.ui.homescreen.ScreenAppItem
-import com.deskzen.ui.homescreen.ScreenFolderItem
+import com.deskzen.ui.components.AppIcon
 import com.deskzen.ui.theme.DeskZenDimens
 
 @Composable
@@ -120,11 +118,22 @@ fun DraggableGrid(
                 val item = currentPage.items.find { it.position == position }
                 if (item != null) {
                     when (item) {
-                        is ScreenItem.AppShortcut -> ScreenAppItem(item = item)
-                        is ScreenItem.Folder -> ScreenFolderItem(folder = item)
+                        is ScreenItem.AppShortcut -> {
+                            AppIcon(
+                                icon = item.appInfo.icon,
+                                label = item.appInfo.label,
+                                size = DeskZenDimens.appIconMedium
+                            )
+                        }
+                        is ScreenItem.Folder -> {
+                            Text(
+                                text = item.name,
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
                     }
                 } else {
-                    EmptySlot()
+                    Box(modifier = Modifier.aspectRatio(1f).padding(4.dp))
                 }
             }
         }

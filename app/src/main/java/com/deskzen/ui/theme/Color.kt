@@ -2,22 +2,36 @@ package com.deskzen.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Palette DeskZen — Tons zen/nature
-val DeskZenGreen = Color(0xFF2D5A3D)
-val DeskZenGreenLight = Color(0xFF8FD4A4)
-val DeskZenSage = Color(0xFF5B7C6B)
-val DeskZenSageLight = Color(0xFFA3C4B0)
-val DeskZenGold = Color(0xFFE8A849)
-val DeskZenGoldLight = Color(0xFFFFD180)
-val DeskZenSurface = Color(0xFFF8FAF9)
-val DeskZenSurfaceDark = Color(0xFF1A1C1B)
-val DeskZenBackground = Color(0xFFFFFFFF)
-val DeskZenBackgroundDark = Color(0xFF111312)
-val DeskZenError = Color(0xFFBA1A1A)
-val DeskZenErrorDark = Color(0xFFFFB4AB)
-val DeskZenOnPrimary = Color(0xFFFFFFFF)
-val DeskZenOnPrimaryDark = Color(0xFF003920)
-val DeskZenOnSurface = Color(0xFF1A1C1B)
-val DeskZenOnSurfaceDark = Color(0xFFE2E3DE)
-val DeskZenOnError = Color(0xFFFFFFFF)
-val DeskZenOnErrorDark = Color(0xFF690005)
+// === Solo Leveling — Shadow Monarch Theme ===
+
+// Primary: Deep void / electric blue
+val SoloVoid = Color(0xFF0A1543)
+val SoloDeepBlack = Color(0xFF080B1A)
+val SoloNavy = Color(0xFF0F1D5E)
+val SoloElectricBlue = Color(0xFF1B45D7)
+val SoloBrightBlue = Color(0xFF3B6EFF)
+val SoloCyan = Color(0xFF06B6D4)
+
+// Accent: Neon purple glow
+val SoloPurple = Color(0xFF7C3AED)
+val SoloBrightPurple = Color(0xFFA855F7)
+val SoloNeonPurple = Color(0xFFB91EFF)
+
+// Surface
+val SoloSurface = Color(0xFF111827)
+val SoloSurfaceLight = Color(0xFF1F2937)
+val SoloSurfaceCard = Color(0xFF1A2332)
+
+// Text
+val SoloTextPrimary = Color(0xFFE5E7EB)
+val SoloTextSecondary = Color(0xFF9CA3AF)
+val SoloTextMuted = Color(0xFF6B7280)
+
+// Accents
+val SoloGold = Color(0xFFFFD700)
+val SoloError = Color(0xFFEF4444)
+val SoloSuccess = Color(0xFF10B981)
+
+// Shadow / Glow
+val SoloGlow = Color(0xFF3B6EFF)
+val SoloPurpleGlow = Color(0xFFA855F7)

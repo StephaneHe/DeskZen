@@ -48,8 +48,8 @@ class LauncherDetector @Inject constructor(
             }
         }
 
-        // Fallback: build screen from installed apps
-        return buildScreenFromInstalledApps()
+        // No fallback — let the ViewModel handle usage stats or empty state
+        return null
     }
 
     private suspend fun readFavoritesFromUri(uri: Uri): List<ScreenPage>? {
