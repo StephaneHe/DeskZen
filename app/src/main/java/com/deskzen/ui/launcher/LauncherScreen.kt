@@ -56,7 +56,9 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -253,17 +255,14 @@ fun LauncherScreen(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 8.dp)
+                    .fillMaxWidth()
             ) {
                 uiState.activeWidgetIds.forEach { widgetId ->
-                    val widgetView = remember(widgetId) {
-                        viewModel.widgetManager.createWidgetView(widgetId)
-                    }
-                    widgetView?.let { view ->
-                        androidx.compose.ui.viewinterop.AndroidView(
-                            factory = { view },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = DeskZenDimens.spacingMd)
+                    key(widgetId) {
+                        WidgetView(
+                            widgetManager = viewModel.widgetManager,
+                            widgetId = widgetId,
+                            onRemove = { viewModel.removeWidget(widgetId) }
                         )
                     }
                 }
@@ -726,6 +725,50 @@ fun AppDrawer(
                         onClick = { showMenu = false }
                     )
                 }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun WidgetView(
+    widgetManager: WidgetManager,
+    widgetId: Int,
+    onRemove: () -> Unit
+) {
+    var showRemove by remember { mutableStateOf(false) }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = DeskZenDimens.spacingMd, vertical = 4.dp)
+            .combinedClickable(
+                onClick = {},
+                onLongClick = { showRemove = true }
+            )
+    ) {
+        androidx.compose.ui.viewinterop.AndroidView(
+            factory = { ctx ->
+                widgetManager.createWidgetView(widgetId)
+                    ?: android.widget.FrameLayout(ctx) // fallback empty view
+            },
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        if (showRemove) {
+            DropdownMenu(
+                expanded = showRemove,
+                onDismissRequest = { showRemove = false }
+            ) {
+                DropdownMenuItem(
+                    text = { Text("Supprimer le widget") },
+                    leadingIcon = { Icon(Icons.Default.Delete, null) },
+                    onClick = {
+                        showRemove = false
+                        onRemove()
+                    }
+                )
             }
         }
     }

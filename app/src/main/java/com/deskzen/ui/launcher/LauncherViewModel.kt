@@ -447,6 +447,14 @@ class LauncherViewModel @Inject constructor(
 
     val widgetManager = WidgetManager(context)
 
+    init {
+        // Load persisted widget IDs
+        val savedIds = widgetManager.loadWidgetIds()
+        if (savedIds.isNotEmpty()) {
+            _uiState.value = _uiState.value.copy(activeWidgetIds = savedIds)
+        }
+    }
+
     fun showWidgetPicker() {
         _uiState.value = _uiState.value.copy(showWidgetPicker = true)
     }
@@ -475,8 +483,12 @@ class LauncherViewModel @Inject constructor(
 
     fun addWidget(widgetId: Int) {
         val currentIds = _uiState.value.activeWidgetIds.toMutableList()
-        currentIds.add(widgetId)
+        if (widgetId !in currentIds) {
+            currentIds.add(widgetId)
+        }
         _uiState.value = _uiState.value.copy(activeWidgetIds = currentIds)
+        widgetManager.saveWidgetIds(currentIds)
+        Timber.d("Widget added: id=$widgetId, total=${currentIds.size}")
     }
 
     fun removeWidget(widgetId: Int) {
@@ -484,6 +496,7 @@ class LauncherViewModel @Inject constructor(
         val currentIds = _uiState.value.activeWidgetIds.toMutableList()
         currentIds.remove(widgetId)
         _uiState.value = _uiState.value.copy(activeWidgetIds = currentIds)
+        widgetManager.saveWidgetIds(currentIds)
     }
 
     override fun onCleared() {

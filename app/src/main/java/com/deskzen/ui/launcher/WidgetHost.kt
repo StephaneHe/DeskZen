@@ -11,6 +11,8 @@ import timber.log.Timber
 class DeskZenWidgetHost(context: Context, hostId: Int) : AppWidgetHost(context, hostId) {
     companion object {
         const val HOST_ID = 1024
+        private const val PREFS_NAME = "deskzen_widgets"
+        private const val KEY_WIDGET_IDS = "active_widget_ids"
     }
 }
 
@@ -18,6 +20,7 @@ class WidgetManager(private val context: Context) {
 
     val appWidgetHost = DeskZenWidgetHost(context, DeskZenWidgetHost.HOST_ID)
     val appWidgetManager: AppWidgetManager = AppWidgetManager.getInstance(context)
+    private val prefs = context.getSharedPreferences("deskzen_widgets", Context.MODE_PRIVATE)
 
     fun startListening() {
         try {
@@ -46,7 +49,9 @@ class WidgetManager(private val context: Context) {
     fun createWidgetView(widgetId: Int): AppWidgetHostView? {
         return try {
             val widgetInfo = appWidgetManager.getAppWidgetInfo(widgetId) ?: return null
-            appWidgetHost.createView(context, widgetId, widgetInfo)
+            val view = appWidgetHost.createView(context, widgetId, widgetInfo)
+            view.setAppWidget(widgetId, widgetInfo)
+            view
         } catch (e: Exception) {
             Timber.e(e, "Failed to create widget view for id $widgetId")
             null
@@ -65,8 +70,20 @@ class WidgetManager(private val context: Context) {
     }
 
     fun bindWidget(widgetId: Int, provider: AppWidgetProviderInfo): Boolean {
-        return AppWidgetManager.getInstance(context).bindAppWidgetIdIfAllowed(
-            widgetId, provider.provider
-        )
+        return appWidgetManager.bindAppWidgetIdIfAllowed(widgetId, provider.provider)
+    }
+
+    // Persistence
+    fun saveWidgetIds(ids: List<Int>) {
+        prefs.edit()
+            .putString("active_widget_ids", ids.joinToString(","))
+            .apply()
+    }
+
+    fun loadWidgetIds(): List<Int> {
+        val str = prefs.getString("active_widget_ids", "") ?: ""
+        if (str.isBlank()) return emptyList()
+        return str.split(",").mapNotNull { it.toIntOrNull() }
+            .filter { appWidgetManager.getAppWidgetInfo(it) != null } // only valid widgets
     }
 }
