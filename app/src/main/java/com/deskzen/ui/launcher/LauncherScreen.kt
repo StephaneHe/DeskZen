@@ -1,8 +1,6 @@
 package com.deskzen.ui.launcher
 
 import android.app.WallpaperManager
-import android.appwidget.AppWidgetManager
-import android.content.Intent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
@@ -40,7 +38,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -56,9 +53,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.key
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -150,7 +145,6 @@ fun LauncherScreen(
             onAppClick = viewModel::launchApp,
             onAppLongClick = { pkg -> appToMove = pkg },
             onSwipeUp = viewModel::openDrawer,
-            // Widgets are rendered natively above Compose in MainActivity
         )
 
         // App drawer overlay
@@ -176,10 +170,6 @@ fun LauncherScreen(
                     viewModel.closeDrawer()
                     viewModel.showFolderManager()
                 },
-                onOpenWidgetPicker = {
-                    viewModel.closeDrawer()
-                    viewModel.showWidgetPicker()
-                }
             )
         }
 
@@ -219,14 +209,6 @@ fun LauncherScreen(
             )
         }
 
-        // Widget picker: launch native Android picker
-        if (uiState.showWidgetPicker) {
-            val activity = context as? com.deskzen.MainActivity
-            LaunchedEffect(Unit) {
-                activity?.launchNativeWidgetPicker()
-                viewModel.hideWidgetPicker()
-            }
-        }
 
     }
 }
@@ -537,8 +519,7 @@ fun AppDrawer(
     onAppClick: (String) -> Unit,
     onAppLongClick: (String) -> Unit,
     onClose: () -> Unit,
-    onOpenFolderManager: () -> Unit = {},
-    onOpenWidgetPicker: () -> Unit = {}
+    onOpenFolderManager: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -583,9 +564,6 @@ fun AppDrawer(
             Spacer(modifier = Modifier.width(DeskZenDimens.spacingSm))
             IconButton(onClick = onOpenFolderManager) {
                 Icon(Icons.Default.FolderOpen, contentDescription = "Dossiers", tint = SoloElectricBlue)
-            }
-            IconButton(onClick = onOpenWidgetPicker) {
-                Icon(Icons.Default.Widgets, contentDescription = "Widgets", tint = SoloPurple)
             }
             IconButton(onClick = onClose) {
                 Icon(Icons.Default.Close, contentDescription = "Fermer", tint = Color.White)

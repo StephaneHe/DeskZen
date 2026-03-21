@@ -29,8 +29,6 @@ data class LauncherUiState(
     val drawerSearchQuery: String = "",
     val suggestions: List<ThemeSuggestion> = emptyList(),
     val showFolderManager: Boolean = false,
-    val showWidgetPicker: Boolean = false,
-    val activeWidgetIds: List<Int> = emptyList(),
     val isFirstLaunch: Boolean = true
 )
 
@@ -443,13 +441,4 @@ class LauncherViewModel @Inject constructor(
         loadApps()
     }
 
-    // === Widgets ===
-
-    fun showWidgetPicker() {
-        _uiState.value = _uiState.value.copy(showWidgetPicker = true)
-    }
-
-    fun hideWidgetPicker() {
-        _uiState.value = _uiState.value.copy(showWidgetPicker = false)
-    }
 }
