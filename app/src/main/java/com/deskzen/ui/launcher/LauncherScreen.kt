@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -98,6 +99,7 @@ fun LauncherScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    var appToMove by remember { mutableStateOf<String?>(null) }
 
     // System wallpaper
     val wallpaperBitmap = remember {
@@ -140,7 +142,7 @@ fun LauncherScreen(
             pages = uiState.pages,
             onPageChanged = viewModel::onPageChanged,
             onAppClick = viewModel::launchApp,
-            onAppLongClick = viewModel::openAppInfo,
+            onAppLongClick = { pkg -> appToMove = pkg },
             onSwipeUp = viewModel::openDrawer
         )
 
@@ -158,11 +160,18 @@ fun LauncherScreen(
                     viewModel.closeDrawer()
                     viewModel.launchApp(pkg)
                 },
-                onAppLongClick = viewModel::openAppInfo,
+                onAppLongClick = { pkg ->
+                    viewModel.closeDrawer()
+                    appToMove = pkg
+                },
                 onClose = viewModel::closeDrawer,
                 onOpenFolderManager = {
                     viewModel.closeDrawer()
                     viewModel.showFolderManager()
+                },
+                onOpenWidgetPicker = {
+                    viewModel.closeDrawer()
+                    viewModel.showWidgetPicker()
                 }
             )
         }
@@ -179,6 +188,70 @@ fun LauncherScreen(
                 },
                 onDismiss = viewModel::hideFolderManager
             )
+        }
+
+        // Move app to folder dialog
+        appToMove?.let { pkg ->
+            MoveToFolderDialog(
+                packageName = pkg,
+                appLabel = uiState.allApps.find { it.packageName == pkg }?.label ?: pkg,
+                folders = viewModel.getAllFolderNames(),
+                onMoveToFolder = { folderName ->
+                    viewModel.moveAppToFolder(pkg, folderName)
+                    appToMove = null
+                },
+                onAddToHomeScreen = {
+                    viewModel.addAppToHomeScreen(pkg)
+                    appToMove = null
+                },
+                onOpenInfo = {
+                    viewModel.openAppInfo(pkg)
+                    appToMove = null
+                },
+                onDismiss = { appToMove = null }
+            )
+        }
+
+        // Widget picker
+        if (uiState.showWidgetPicker) {
+            WidgetPickerSheet(
+                widgets = viewModel.getAvailableWidgets(),
+                onWidgetSelected = { providerInfo ->
+                    val widgetId = viewModel.widgetManager.allocateWidgetId()
+                    val bound = viewModel.widgetManager.bindWidget(widgetId, providerInfo)
+                    if (bound) {
+                        viewModel.addWidget(widgetId)
+                    } else {
+                        // Need to request bind permission — for now just deallocate
+                        viewModel.widgetManager.deallocateWidgetId(widgetId)
+                    }
+                    viewModel.hideWidgetPicker()
+                },
+                onDismiss = viewModel::hideWidgetPicker
+            )
+        }
+
+        // Display active widgets at the top of home screen
+        if (uiState.activeWidgetIds.isNotEmpty()) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 8.dp)
+            ) {
+                uiState.activeWidgetIds.forEach { widgetId ->
+                    val widgetView = remember(widgetId) {
+                        viewModel.widgetManager.createWidgetView(widgetId)
+                    }
+                    widgetView?.let { view ->
+                        androidx.compose.ui.viewinterop.AndroidView(
+                            factory = { view },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = DeskZenDimens.spacingMd)
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -347,6 +420,10 @@ fun HomePageGrid(
                                 expanded = false
                                 onAppClick(pkg)
                             },
+                            onMoveApp = { pkg ->
+                                expanded = false
+                                onAppLongClick(pkg) // triggers move dialog
+                            },
                             onDismiss = { expanded = false }
                         )
                     }
@@ -389,13 +466,16 @@ fun FolderIcon(folder: ScreenItem.Folder) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun FolderSheet(
     folder: ScreenItem.Folder,
     onAppClick: (String) -> Unit,
+    onMoveApp: ((String) -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
+    var appToMove by remember { mutableStateOf<String?>(null) }
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(),
@@ -412,6 +492,11 @@ fun FolderSheet(
                 color = SoloGlow,
                 modifier = Modifier.padding(bottom = DeskZenDimens.spacingMd)
             )
+            Text(
+                text = "${folder.apps.size} apps — appui long pour déplacer",
+                style = TextStyle(fontSize = 12.sp, color = SoloPurple.copy(alpha = 0.6f)),
+                modifier = Modifier.padding(bottom = DeskZenDimens.spacingSm)
+            )
             LazyVerticalGrid(
                 columns = GridCells.Fixed(4),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -421,9 +506,19 @@ fun FolderSheet(
                 )
             ) {
                 items(folder.apps) { app ->
+                    var showMenu by remember { mutableStateOf(false) }
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.clickable { onAppClick(app.packageName) }
+                        modifier = Modifier.combinedClickable(
+                            onClick = { onAppClick(app.packageName) },
+                            onLongClick = {
+                                if (onMoveApp != null) {
+                                    appToMove = app.packageName
+                                } else {
+                                    showMenu = true
+                                }
+                            }
+                        )
                     ) {
                         AppIcon(
                             icon = app.icon,
@@ -448,6 +543,14 @@ fun FolderSheet(
             Spacer(modifier = Modifier.height(DeskZenDimens.spacingLg))
         }
     }
+
+    // Move app dialog
+    appToMove?.let { pkg ->
+        onMoveApp?.let { move ->
+            move(pkg)
+            appToMove = null
+        }
+    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -459,7 +562,8 @@ fun AppDrawer(
     onAppClick: (String) -> Unit,
     onAppLongClick: (String) -> Unit,
     onClose: () -> Unit,
-    onOpenFolderManager: () -> Unit = {}
+    onOpenFolderManager: () -> Unit = {},
+    onOpenWidgetPicker: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -504,6 +608,9 @@ fun AppDrawer(
             Spacer(modifier = Modifier.width(DeskZenDimens.spacingSm))
             IconButton(onClick = onOpenFolderManager) {
                 Icon(Icons.Default.FolderOpen, contentDescription = "Dossiers", tint = SoloElectricBlue)
+            }
+            IconButton(onClick = onOpenWidgetPicker) {
+                Icon(Icons.Default.Widgets, contentDescription = "Widgets", tint = SoloPurple)
             }
             IconButton(onClick = onClose) {
                 Icon(Icons.Default.Close, contentDescription = "Fermer", tint = Color.White)

@@ -29,6 +29,8 @@ data class LauncherUiState(
     val drawerSearchQuery: String = "",
     val suggestions: List<ThemeSuggestion> = emptyList(),
     val showFolderManager: Boolean = false,
+    val showWidgetPicker: Boolean = false,
+    val activeWidgetIds: List<Int> = emptyList(),
     val isFirstLaunch: Boolean = true
 )
 
@@ -42,8 +44,11 @@ class LauncherViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(LauncherUiState())
     val uiState: StateFlow<LauncherUiState> = _uiState.asStateFlow()
 
-    // Custom folders created by the user (name -> isCustom)
+    // Custom folders created by the user
     private val customFolderNames = mutableSetOf<String>()
+
+    // Manual app placements: packageName -> folderName (locked from IA)
+    private val manualPlacements = mutableMapOf<String, String>()
 
     init {
         loadApps()
@@ -74,17 +79,36 @@ class LauncherViewModel @Inject constructor(
     ): List<ScreenPage> {
         val allItems = mutableListOf<ScreenItem>()
         val assignedPackages = mutableSetOf<String>()
+        val appsByPackage = apps.associateBy { it.packageName }
 
-        // 1. Custom folders first (user-created) — try to fill them with IA
+        // 0. Collect all folder names we'll create (for manual placement targets)
+        val allFolderNames = mutableSetOf<String>()
+        allFolderNames.addAll(customFolderNames)
+        suggestions.filter { it.themeName != "Autres" && it.apps.size >= 2 }
+            .forEach { allFolderNames.add("${it.themeIcon} ${it.themeName}") }
+        allFolderNames.add("📱 Autres")
+
+        // Helper: get manually placed apps for a folder
+        fun getManualAppsFor(folderName: String): List<AppInfo> {
+            return manualPlacements
+                .filter { it.value == folderName }
+                .mapNotNull { appsByPackage[it.key] }
+        }
+
+        // 1. Custom folders first (user-created) — IA + manual placements
         for (customName in customFolderNames) {
             val cleanName = customName.replace(Regex("^\\p{So}\\s*"), "").trim()
-            val matchedApps = findAppsForCustomFolder(cleanName, apps, assignedPackages)
-            assignedPackages.addAll(matchedApps.map { it.packageName })
+            val iaApps = findAppsForCustomFolder(cleanName, apps, assignedPackages)
+            val manualApps = getManualAppsFor(customName)
+            val combined = (manualApps + iaApps)
+                .distinctBy { it.packageName }
+                .filter { it.packageName !in assignedPackages }
+            assignedPackages.addAll(combined.map { it.packageName })
             allItems.add(
                 ScreenItem.Folder(
                     position = allItems.size,
                     name = customName,
-                    apps = matchedApps
+                    apps = combined
                 )
             )
         }
@@ -96,24 +120,32 @@ class LauncherViewModel @Inject constructor(
 
         for (theme in iaCategories) {
             val folderName = "${theme.themeIcon} ${theme.themeName}"
-            // Skip if a custom folder covers this theme
             if (customFolderNames.any { it.contains(theme.themeName, ignoreCase = true) }) continue
 
-            val remainingApps = theme.apps.filter { it.packageName !in assignedPackages }
-            if (remainingApps.isEmpty()) continue
+            val manualApps = getManualAppsFor(folderName)
+            val iaApps = theme.apps.filter {
+                it.packageName !in assignedPackages &&
+                        manualPlacements[it.packageName] == null // don't IA-assign manually placed apps
+            }
+            val combined = (manualApps.filter { it.packageName !in assignedPackages } + iaApps)
+                .distinctBy { it.packageName }
+            if (combined.isEmpty()) continue
 
-            assignedPackages.addAll(remainingApps.map { it.packageName })
+            assignedPackages.addAll(combined.map { it.packageName })
             allItems.add(
                 ScreenItem.Folder(
                     position = allItems.size,
                     name = folderName,
-                    apps = remainingApps
+                    apps = combined
                 )
             )
         }
 
-        // 3. "Autres" — unassigned apps
-        val autresApps = apps.filter { it.packageName !in assignedPackages }
+        // 3. "Autres" — unassigned apps + manual placements to Autres
+        val autresManual = getManualAppsFor("📱 Autres")
+        val autresApps = (autresManual + apps.filter {
+            it.packageName !in assignedPackages && manualPlacements[it.packageName] == null
+        }).distinctBy { it.packageName }.filter { it.packageName !in assignedPackages }
         if (autresApps.isNotEmpty()) {
             allItems.add(
                 ScreenItem.Folder(
@@ -204,13 +236,20 @@ class LauncherViewModel @Inject constructor(
 
     fun removeFolder(folderName: String) {
         customFolderNames.remove(folderName)
+        // Remove manual placements targeting this folder
+        manualPlacements.entries.removeAll { it.value == folderName }
         reDispatchWithIA()
     }
 
     fun renameFolder(oldName: String, newName: String) {
         if (customFolderNames.remove(oldName)) {
             val iconName = pickEmojiForFolder(newName)
-            customFolderNames.add("$iconName $newName")
+            val fullNewName = "$iconName $newName"
+            customFolderNames.add(fullNewName)
+            // Update manual placements
+            manualPlacements.entries.filter { it.value == oldName }.forEach {
+                manualPlacements[it.key] = fullNewName
+            }
         }
         reDispatchWithIA()
     }
@@ -237,6 +276,53 @@ class LauncherViewModel @Inject constructor(
             .flatMap { it.items }
             .filterIsInstance<ScreenItem.Folder>()
             .map { it.name to it.apps.size }
+    }
+
+    fun getAllFolderNames(): List<String> {
+        return _uiState.value.pages
+            .flatMap { it.items }
+            .filterIsInstance<ScreenItem.Folder>()
+            .map { it.name }
+    }
+
+    // Move app from one folder to another (manual, locked from IA)
+    fun moveAppToFolder(packageName: String, targetFolderName: String) {
+        manualPlacements[packageName] = targetFolderName
+        reDispatchWithIA()
+    }
+
+    // Add app from drawer directly to a specific folder
+    fun addAppToFolder(packageName: String, targetFolderName: String) {
+        manualPlacements[packageName] = targetFolderName
+        reDispatchWithIA()
+    }
+
+    // Add app from drawer as standalone shortcut on home screen
+    fun addAppToHomeScreen(packageName: String) {
+        val app = _uiState.value.allApps.find { it.packageName == packageName } ?: return
+        val currentPages = _uiState.value.pages.toMutableList()
+        val page = currentPages.firstOrNull() ?: return
+
+        // Find first page with room for a standalone shortcut
+        val maxItems = 20
+        for (i in currentPages.indices) {
+            val p = currentPages[i]
+            if (p.items.size < maxItems) {
+                val maxPos = p.items.maxOfOrNull { it.position } ?: -1
+                val newItem = ScreenItem.AppShortcut(position = maxPos + 1, appInfo = app)
+                currentPages[i] = p.copy(items = p.items + newItem)
+                _uiState.value = _uiState.value.copy(pages = currentPages)
+                return
+            }
+        }
+
+        // All pages full — add new page
+        val newPage = ScreenPage(
+            pageIndex = currentPages.size,
+            items = listOf(ScreenItem.AppShortcut(position = 0, appInfo = app))
+        )
+        currentPages.add(newPage)
+        _uiState.value = _uiState.value.copy(pages = currentPages)
     }
 
     private fun pickEmojiForFolder(name: String): String {
@@ -355,5 +441,53 @@ class LauncherViewModel @Inject constructor(
 
     fun refreshApps() {
         loadApps()
+    }
+
+    // === Widgets ===
+
+    val widgetManager = WidgetManager(context)
+
+    fun showWidgetPicker() {
+        _uiState.value = _uiState.value.copy(showWidgetPicker = true)
+    }
+
+    fun hideWidgetPicker() {
+        _uiState.value = _uiState.value.copy(showWidgetPicker = false)
+    }
+
+    fun getAvailableWidgets(): List<WidgetInfo> {
+        val pm = context.packageManager
+        return widgetManager.getInstalledWidgets().mapNotNull { info ->
+            try {
+                WidgetInfo(
+                    providerInfo = info,
+                    label = info.loadLabel(pm) ?: info.provider.className,
+                    icon = info.loadIcon(context, 0),
+                    appLabel = try {
+                        pm.getApplicationLabel(
+                            pm.getApplicationInfo(info.provider.packageName, 0)
+                        ).toString()
+                    } catch (_: Exception) { info.provider.packageName }
+                )
+            } catch (_: Exception) { null }
+        }.sortedBy { it.appLabel }
+    }
+
+    fun addWidget(widgetId: Int) {
+        val currentIds = _uiState.value.activeWidgetIds.toMutableList()
+        currentIds.add(widgetId)
+        _uiState.value = _uiState.value.copy(activeWidgetIds = currentIds)
+    }
+
+    fun removeWidget(widgetId: Int) {
+        widgetManager.deallocateWidgetId(widgetId)
+        val currentIds = _uiState.value.activeWidgetIds.toMutableList()
+        currentIds.remove(widgetId)
+        _uiState.value = _uiState.value.copy(activeWidgetIds = currentIds)
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        widgetManager.stopListening()
     }
 }
