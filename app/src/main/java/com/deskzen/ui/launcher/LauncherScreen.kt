@@ -246,6 +246,7 @@ fun LauncherScreen(
         }
 
         // Display active widgets at the top of home screen
+        android.util.Log.e("DZEN_WIDGET", "Render: activeWidgetIds=${uiState.activeWidgetIds}")
         if (uiState.activeWidgetIds.isNotEmpty()) {
             Column(
                 modifier = Modifier
@@ -734,6 +735,7 @@ fun WidgetView(
     onRemove: () -> Unit
 ) {
     var showRemove by remember { mutableStateOf(false) }
+    val activity = LocalContext.current as? com.deskzen.MainActivity
 
     Box(
         modifier = Modifier
@@ -745,11 +747,28 @@ fun WidgetView(
             )
     ) {
         androidx.compose.ui.viewinterop.AndroidView(
-            factory = { ctx ->
-                widgetManager.createWidgetView(widgetId)
-                    ?: android.widget.FrameLayout(ctx) // fallback empty view
+            factory = { _ ->
+                try {
+                    val activityWm = activity?.widgetManager ?: widgetManager
+                    val appWidgetManager = AppWidgetManager.getInstance(activity ?: return@AndroidView android.widget.FrameLayout(activity!!))
+                    val widgetInfo = appWidgetManager.getAppWidgetInfo(widgetId)
+                    if (widgetInfo != null) {
+                        val view = activityWm.appWidgetHost.createView(activity, widgetId, widgetInfo)
+                        view.setAppWidget(widgetId, widgetInfo)
+                        android.util.Log.e("DZEN_WIDGET", "Created widget view for id=$widgetId, size=${widgetInfo.minWidth}x${widgetInfo.minHeight}")
+                        view
+                    } else {
+                        android.util.Log.e("DZEN_WIDGET", "No widget info for id=$widgetId")
+                        android.widget.FrameLayout(activity)
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("DZEN_WIDGET", "Error creating widget view: ${e.message}")
+                    android.widget.FrameLayout(activity ?: return@AndroidView android.widget.TextView(activity!!).apply { text = "Widget error" })
+                }
             },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(100.dp)
         )
 
         if (showRemove) {

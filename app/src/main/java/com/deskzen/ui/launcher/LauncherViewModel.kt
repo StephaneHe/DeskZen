@@ -450,6 +450,7 @@ class LauncherViewModel @Inject constructor(
     init {
         // Load persisted widget IDs
         val savedIds = widgetManager.loadWidgetIds()
+        android.util.Log.e("DZEN_WIDGET", "Widget init: loaded ${savedIds.size} widget IDs: $savedIds")
         if (savedIds.isNotEmpty()) {
             _uiState.value = _uiState.value.copy(activeWidgetIds = savedIds)
         }
