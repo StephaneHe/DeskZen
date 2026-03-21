@@ -445,63 +445,11 @@ class LauncherViewModel @Inject constructor(
 
     // === Widgets ===
 
-    val widgetManager = WidgetManager(context)
-
-    init {
-        // Load persisted widget IDs
-        val savedIds = widgetManager.loadWidgetIds()
-        android.util.Log.e("DZEN_WIDGET", "Widget init: loaded ${savedIds.size} widget IDs: $savedIds")
-        if (savedIds.isNotEmpty()) {
-            _uiState.value = _uiState.value.copy(activeWidgetIds = savedIds)
-        }
-    }
-
     fun showWidgetPicker() {
         _uiState.value = _uiState.value.copy(showWidgetPicker = true)
     }
 
     fun hideWidgetPicker() {
         _uiState.value = _uiState.value.copy(showWidgetPicker = false)
-    }
-
-    fun getAvailableWidgets(): List<WidgetInfo> {
-        val pm = context.packageManager
-        return widgetManager.getInstalledWidgets().mapNotNull { info ->
-            try {
-                WidgetInfo(
-                    providerInfo = info,
-                    label = info.loadLabel(pm) ?: info.provider.className,
-                    icon = info.loadIcon(context, 0),
-                    appLabel = try {
-                        pm.getApplicationLabel(
-                            pm.getApplicationInfo(info.provider.packageName, 0)
-                        ).toString()
-                    } catch (_: Exception) { info.provider.packageName }
-                )
-            } catch (_: Exception) { null }
-        }.sortedBy { it.appLabel }
-    }
-
-    fun addWidget(widgetId: Int) {
-        val currentIds = _uiState.value.activeWidgetIds.toMutableList()
-        if (widgetId !in currentIds) {
-            currentIds.add(widgetId)
-        }
-        _uiState.value = _uiState.value.copy(activeWidgetIds = currentIds)
-        widgetManager.saveWidgetIds(currentIds)
-        Timber.d("Widget added: id=$widgetId, total=${currentIds.size}")
-    }
-
-    fun removeWidget(widgetId: Int) {
-        widgetManager.deallocateWidgetId(widgetId)
-        val currentIds = _uiState.value.activeWidgetIds.toMutableList()
-        currentIds.remove(widgetId)
-        _uiState.value = _uiState.value.copy(activeWidgetIds = currentIds)
-        widgetManager.saveWidgetIds(currentIds)
-    }
-
-    override fun onCleared() {
-        super.onCleared()
-        widgetManager.stopListening()
     }
 }
