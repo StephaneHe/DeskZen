@@ -145,10 +145,31 @@ class LauncherViewModel @Inject constructor(
         allApps: List<AppInfo>,
         alreadyAssigned: Set<String>
     ): List<AppInfo> {
-        val keywords = folderName.lowercase().split(" ", ",", "-", "&", "/")
+        val lower = folderName.lowercase()
+
+        // 1. Try to match against IA theme names and use their patterns
+        val matchedPatterns = mutableListOf<String>()
+
+        for ((themeName, patterns) in HeuristicCategorizer.PACKAGE_PATTERNS) {
+            if (lower.contains(themeName.lowercase()) ||
+                themeName.lowercase().contains(lower.take(5))) {
+                matchedPatterns.addAll(patterns)
+            }
+        }
+        for ((themeName, keywords) in HeuristicCategorizer.LABEL_KEYWORDS) {
+            if (lower.contains(themeName.lowercase()) ||
+                themeName.lowercase().contains(lower.take(5))) {
+                matchedPatterns.addAll(keywords)
+            }
+        }
+
+        // 2. Also use folder name words as direct keywords
+        val folderKeywords = lower.split(" ", ",", "-", "&", "/")
             .filter { it.length >= 3 }
 
-        if (keywords.isEmpty()) return emptyList()
+        val allKeywords = (matchedPatterns + folderKeywords).distinct()
+
+        if (allKeywords.isEmpty()) return emptyList()
 
         return allApps.filter { app ->
             if (app.packageName in alreadyAssigned) return@filter false
@@ -156,7 +177,7 @@ class LauncherViewModel @Inject constructor(
             val label = app.label.lowercase()
             val category = app.category?.lowercase() ?: ""
 
-            keywords.any { kw ->
+            allKeywords.any { kw ->
                 pkg.contains(kw) || label.contains(kw) || category.contains(kw)
             }
         }
