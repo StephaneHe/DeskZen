@@ -1,6 +1,8 @@
 package com.deskzen.ui.launcher
 
 import android.app.WallpaperManager
+import android.appwidget.AppWidgetManager
+import android.content.Intent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
@@ -100,6 +102,11 @@ fun LauncherScreen(
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     var appToMove by remember { mutableStateOf<String?>(null) }
+
+    // Start widget host
+    LaunchedEffect(Unit) {
+        viewModel.widgetManager.startListening()
+    }
 
     // System wallpaper
     val wallpaperBitmap = remember {
@@ -214,16 +221,49 @@ fun LauncherScreen(
 
         // Widget picker
         if (uiState.showWidgetPicker) {
+            val activity = context as? com.deskzen.MainActivity
             WidgetPickerSheet(
                 widgets = viewModel.getAvailableWidgets(),
                 onWidgetSelected = { providerInfo ->
                     val widgetId = viewModel.widgetManager.allocateWidgetId()
                     val bound = viewModel.widgetManager.bindWidget(widgetId, providerInfo)
                     if (bound) {
-                        viewModel.addWidget(widgetId)
+                        // Check if widget needs configuration
+                        val configActivity = providerInfo.configure
+                        if (configActivity != null) {
+                            val configIntent = Intent(AppWidgetManager.ACTION_APPWIDGET_CONFIGURE).apply {
+                                component = configActivity
+                                putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
+                            }
+                            activity?.launchWidgetConfig(configIntent) { success ->
+                                if (success) viewModel.addWidget(widgetId)
+                                else viewModel.widgetManager.deallocateWidgetId(widgetId)
+                            }
+                        } else {
+                            viewModel.addWidget(widgetId)
+                        }
                     } else {
-                        // Need to request bind permission — for now just deallocate
-                        viewModel.widgetManager.deallocateWidgetId(widgetId)
+                        // Request bind permission via system dialog
+                        val bindIntent = viewModel.widgetManager.getBindIntent(widgetId, providerInfo)
+                        activity?.requestWidgetBind(bindIntent) { success ->
+                            if (success) {
+                                val configActivity2 = providerInfo.configure
+                                if (configActivity2 != null) {
+                                    val configIntent = Intent(AppWidgetManager.ACTION_APPWIDGET_CONFIGURE).apply {
+                                        component = configActivity2
+                                        putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
+                                    }
+                                    activity.launchWidgetConfig(configIntent) { configSuccess ->
+                                        if (configSuccess) viewModel.addWidget(widgetId)
+                                        else viewModel.widgetManager.deallocateWidgetId(widgetId)
+                                    }
+                                } else {
+                                    viewModel.addWidget(widgetId)
+                                }
+                            } else {
+                                viewModel.widgetManager.deallocateWidgetId(widgetId)
+                            }
+                        }
                     }
                     viewModel.hideWidgetPicker()
                 },
