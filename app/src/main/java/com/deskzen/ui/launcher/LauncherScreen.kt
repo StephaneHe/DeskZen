@@ -36,6 +36,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
@@ -158,7 +159,25 @@ fun LauncherScreen(
                     viewModel.launchApp(pkg)
                 },
                 onAppLongClick = viewModel::openAppInfo,
-                onClose = viewModel::closeDrawer
+                onClose = viewModel::closeDrawer,
+                onOpenFolderManager = {
+                    viewModel.closeDrawer()
+                    viewModel.showFolderManager()
+                }
+            )
+        }
+
+        // Folder manager sheet
+        if (uiState.showFolderManager) {
+            FolderManagerSheet(
+                folders = viewModel.getAllFolders(),
+                onAddFolder = viewModel::addFolder,
+                onRemoveFolder = viewModel::removeFolder,
+                onReDispatch = {
+                    viewModel.reDispatchWithIA()
+                    viewModel.hideFolderManager()
+                },
+                onDismiss = viewModel::hideFolderManager
             )
         }
     }
@@ -439,7 +458,8 @@ fun AppDrawer(
     onSearchChanged: (String) -> Unit,
     onAppClick: (String) -> Unit,
     onAppLongClick: (String) -> Unit,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    onOpenFolderManager: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -482,6 +502,9 @@ fun AppDrawer(
                 color = SoloPurple
             )
             Spacer(modifier = Modifier.width(DeskZenDimens.spacingSm))
+            IconButton(onClick = onOpenFolderManager) {
+                Icon(Icons.Default.FolderOpen, contentDescription = "Dossiers", tint = SoloElectricBlue)
+            }
             IconButton(onClick = onClose) {
                 Icon(Icons.Default.Close, contentDescription = "Fermer", tint = Color.White)
             }

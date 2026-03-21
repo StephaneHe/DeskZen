@@ -2,7 +2,6 @@ package com.deskzen.ui.launcher
 
 import android.content.Context
 import android.content.Intent
-import android.content.pm.LauncherApps
 import android.net.Uri
 import android.provider.Settings
 import androidx.lifecycle.ViewModel
@@ -28,8 +27,8 @@ data class LauncherUiState(
     val drawerOpen: Boolean = false,
     val allApps: List<AppInfo> = emptyList(),
     val drawerSearchQuery: String = "",
-    val showSuggestions: Boolean = false,
     val suggestions: List<ThemeSuggestion> = emptyList(),
+    val showFolderManager: Boolean = false,
     val isFirstLaunch: Boolean = true
 )
 
@@ -52,8 +51,6 @@ class LauncherViewModel @Inject constructor(
             try {
                 val apps = appRepository.getInstalledApps(includeSystem = true)
                 val suggestions = categorizer.categorize(apps)
-
-                // Build initial pages from suggestions
                 val pages = buildPagesFromSuggestions(apps, suggestions)
 
                 _uiState.value = _uiState.value.copy(
@@ -73,50 +70,56 @@ class LauncherViewModel @Inject constructor(
         suggestions: List<ThemeSuggestion>
     ): List<ScreenPage> {
         val pages = mutableListOf<ScreenPage>()
-
-        // Page 1: Top apps as shortcuts + main folders
         val page1Items = mutableListOf<ScreenItem>()
         var position = 0
 
-        // Top row: most common apps (first 4)
-        val topApps = apps.take(4)
-        for (app in topApps) {
-            page1Items.add(ScreenItem.AppShortcut(position = position, appInfo = app))
-            position++
-        }
-
-        // Remaining: category folders
-        val usedPackages = topApps.map { it.packageName }.toSet()
-        val mainCategories = suggestions
+        // All categories with 2+ apps become folders
+        val categories = suggestions
             .filter { it.themeName != "Autres" && it.apps.size >= 2 }
             .sortedByDescending { it.apps.size }
-            .take(16) // fill rest of page
 
-        for (theme in mainCategories) {
-            val folderApps = theme.apps.filter { it.packageName !in usedPackages }
-            if (folderApps.isNotEmpty() && position < 20) {
-                page1Items.add(
-                    ScreenItem.Folder(
-                        position = position,
-                        name = "${theme.themeIcon} ${theme.themeName}",
-                        apps = folderApps
-                    )
+        for (theme in categories) {
+            if (position >= 20) break
+            page1Items.add(
+                ScreenItem.Folder(
+                    position = position,
+                    name = "${theme.themeIcon} ${theme.themeName}",
+                    apps = theme.apps
                 )
-                position++
-            }
+            )
+            position++
         }
 
         pages.add(ScreenPage(pageIndex = 0, items = page1Items))
 
-        // Page 2: "Autres" apps
-        val autres = suggestions.find { it.themeName == "Autres" }
-        if (autres != null && autres.apps.isNotEmpty()) {
-            val page2Items = autres.apps
-                .filter { it.packageName !in usedPackages }
-                .take(20)
-                .mapIndexed { index, app ->
-                    ScreenItem.AppShortcut(position = index, appInfo = app)
+        // Page 2: overflow folders + "Autres"
+        if (position >= 20 || suggestions.any { it.themeName == "Autres" && it.apps.isNotEmpty() }) {
+            val page2Items = mutableListOf<ScreenItem>()
+            var pos2 = 0
+
+            // Overflow categories
+            for (theme in categories.drop(20)) {
+                if (pos2 >= 20) break
+                page2Items.add(
+                    ScreenItem.Folder(
+                        position = pos2,
+                        name = "${theme.themeIcon} ${theme.themeName}",
+                        apps = theme.apps
+                    )
+                )
+                pos2++
+            }
+
+            // "Autres" as individual apps
+            val autres = suggestions.find { it.themeName == "Autres" }
+            if (autres != null) {
+                for (app in autres.apps) {
+                    if (pos2 >= 20) break
+                    page2Items.add(ScreenItem.AppShortcut(position = pos2, appInfo = app))
+                    pos2++
                 }
+            }
+
             if (page2Items.isNotEmpty()) {
                 pages.add(ScreenPage(pageIndex = 1, items = page2Items))
             }
@@ -124,6 +127,96 @@ class LauncherViewModel @Inject constructor(
 
         return pages
     }
+
+    // === Folder management ===
+
+    fun showFolderManager() {
+        _uiState.value = _uiState.value.copy(showFolderManager = true)
+    }
+
+    fun hideFolderManager() {
+        _uiState.value = _uiState.value.copy(showFolderManager = false)
+    }
+
+    fun addFolder(name: String) {
+        // Create empty folder and let IA dispatch apps into it
+        val currentPages = _uiState.value.pages.toMutableList()
+        val page = currentPages.firstOrNull() ?: return
+
+        val maxPosition = page.items.maxOfOrNull { it.position } ?: -1
+        val newPosition = maxPosition + 1
+
+        if (newPosition >= 20) {
+            // Page full, add to page 2
+            if (currentPages.size < 2) {
+                currentPages.add(ScreenPage(pageIndex = 1, items = emptyList()))
+            }
+            val page2 = currentPages[1]
+            val maxPos2 = page2.items.maxOfOrNull { it.position } ?: -1
+            val newFolder = ScreenItem.Folder(position = maxPos2 + 1, name = name, apps = emptyList())
+            currentPages[1] = page2.copy(items = page2.items + newFolder)
+        } else {
+            val newFolder = ScreenItem.Folder(position = newPosition, name = name, apps = emptyList())
+            currentPages[0] = page.copy(items = page.items + newFolder)
+        }
+
+        _uiState.value = _uiState.value.copy(pages = currentPages)
+    }
+
+    fun removeFolder(folderName: String) {
+        val currentPages = _uiState.value.pages.map { page ->
+            page.copy(items = page.items.filter { item ->
+                !(item is ScreenItem.Folder && item.name == folderName)
+            })
+        }
+        _uiState.value = _uiState.value.copy(pages = currentPages)
+        // Re-dispatch to redistribute orphaned apps
+        reDispatchWithIA()
+    }
+
+    fun renameFolder(oldName: String, newName: String) {
+        val currentPages = _uiState.value.pages.map { page ->
+            page.copy(items = page.items.map { item ->
+                if (item is ScreenItem.Folder && item.name == oldName) {
+                    item.copy(name = newName)
+                } else item
+            })
+        }
+        _uiState.value = _uiState.value.copy(pages = currentPages)
+    }
+
+    fun reDispatchWithIA() {
+        viewModelScope.launch {
+            val apps = _uiState.value.allApps
+            if (apps.isEmpty()) return@launch
+
+            // Get current custom folders (user-created)
+            val currentFolders = _uiState.value.pages
+                .flatMap { it.items }
+                .filterIsInstance<ScreenItem.Folder>()
+                .map { it.name }
+
+            // Re-categorize all apps
+            val suggestions = categorizer.categorize(apps)
+            val pages = buildPagesFromSuggestions(apps, suggestions)
+
+            _uiState.value = _uiState.value.copy(
+                suggestions = suggestions,
+                pages = pages
+            )
+
+            Timber.d("Re-dispatched ${apps.size} apps into ${suggestions.size} categories")
+        }
+    }
+
+    fun getAllFolders(): List<Pair<String, Int>> {
+        return _uiState.value.pages
+            .flatMap { it.items }
+            .filterIsInstance<ScreenItem.Folder>()
+            .map { it.name to it.apps.size }
+    }
+
+    // === Navigation ===
 
     fun onPageChanged(page: Int) {
         _uiState.value = _uiState.value.copy(currentPage = page)
@@ -151,9 +244,7 @@ class LauncherViewModel @Inject constructor(
         }
     }
 
-    fun toggleSuggestions() {
-        _uiState.value = _uiState.value.copy(showSuggestions = !_uiState.value.showSuggestions)
-    }
+    // === App actions ===
 
     fun launchApp(packageName: String) {
         val intent = context.packageManager.getLaunchIntentForPackage(packageName)
