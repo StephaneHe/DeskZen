@@ -1,6 +1,5 @@
 package com.deskzen.ui.launcher
 
-import android.app.WallpaperManager
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
@@ -9,6 +8,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.OpenWith
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -67,8 +68,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.res.painterResource
+import com.deskzen.R
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -78,7 +79,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.graphics.drawable.toBitmap
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.deskzen.domain.model.AppInfo
 import com.deskzen.domain.model.ScreenItem
@@ -102,49 +102,24 @@ fun LauncherScreen(
 
 
 
-    // System wallpaper
-    val wallpaperBitmap = remember {
-        try {
-            val wm = WallpaperManager.getInstance(context)
-            wm.drawable?.toBitmap()?.asImageBitmap()
-        } catch (e: Exception) { null }
-    }
-
     Box(modifier = Modifier.fillMaxSize()) {
-        // Wallpaper background
-        if (wallpaperBitmap != null) {
-            Image(
-                painter = BitmapPainter(wallpaperBitmap),
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
-            )
-            // Dark overlay for readability
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(SoloDeepBlack.copy(alpha = 0.4f))
-            )
-        } else {
-            // Gradient fallback
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(SoloDeepBlack, SoloSurface, SoloDeepBlack)
-                        )
-                    )
-            )
-        }
+        // Solo Leveling wallpaper
+        Image(
+            painter = painterResource(id = R.drawable.wallpaper_solo_leveling),
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop
+        )
 
         // Home screen pages
         HomeScreenContent(
             pages = uiState.pages,
+            currentPageIndex = uiState.currentPage,
             onPageChanged = viewModel::onPageChanged,
             onAppClick = viewModel::launchApp,
             onAppLongClick = { pkg -> appToMove = pkg },
             onSwipeUp = viewModel::openDrawer,
+            onSwapItems = viewModel::swapItems
         )
 
         // App drawer overlay
@@ -183,6 +158,28 @@ fun LauncherScreen(
                     viewModel.reDispatchWithIA()
                     viewModel.hideFolderManager()
                 },
+                onExportBackup = {
+                    val json = viewModel.exportBackup()
+                    // Save to internal storage and show toast
+                    val file = java.io.File(context.filesDir, "deskzen_backup.json")
+                    file.writeText(json)
+                    android.widget.Toast.makeText(context, "Sauvegarde: ${file.absolutePath}", android.widget.Toast.LENGTH_LONG).show()
+                },
+                onImportBackup = {
+                    val file = java.io.File(context.filesDir, "deskzen_backup.json")
+                    if (file.exists()) {
+                        val data = BackupManager.importFromJson(file.readText())
+                        if (data != null) {
+                            viewModel.importBackup(data)
+                            android.widget.Toast.makeText(context, "Configuration restaurée", android.widget.Toast.LENGTH_SHORT).show()
+                        } else {
+                            android.widget.Toast.makeText(context, "Fichier invalide", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    } else {
+                        android.widget.Toast.makeText(context, "Aucune sauvegarde trouvée", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                    viewModel.hideFolderManager()
+                },
                 onDismiss = viewModel::hideFolderManager
             )
         }
@@ -193,6 +190,7 @@ fun LauncherScreen(
                 packageName = pkg,
                 appLabel = uiState.allApps.find { it.packageName == pkg }?.label ?: pkg,
                 folders = viewModel.getAllFolderNames(),
+                shortcuts = viewModel.getAppShortcuts(pkg),
                 onMoveToFolder = { folderName ->
                     viewModel.moveAppToFolder(pkg, folderName)
                     appToMove = null
@@ -203,6 +201,10 @@ fun LauncherScreen(
                 },
                 onOpenInfo = {
                     viewModel.openAppInfo(pkg)
+                    appToMove = null
+                },
+                onLaunchShortcut = { shortcut ->
+                    viewModel.launchShortcut(shortcut)
                     appToMove = null
                 },
                 onDismiss = { appToMove = null }
@@ -216,10 +218,12 @@ fun LauncherScreen(
 @Composable
 fun HomeScreenContent(
     pages: List<ScreenPage>,
+    currentPageIndex: Int = 0,
     onPageChanged: (Int) -> Unit,
     onAppClick: (String) -> Unit,
     onAppLongClick: (String) -> Unit,
-    onSwipeUp: () -> Unit
+    onSwipeUp: () -> Unit,
+    onSwapItems: (Int, Int, Int) -> Unit = { _, _, _ -> }
 ) {
     val pagerState = rememberPagerState(pageCount = { pages.size.coerceAtLeast(1) })
     val statusBarPadding = WindowInsets.statusBars.asPaddingValues()
@@ -237,6 +241,13 @@ fun HomeScreenContent(
                     if (dragAmount < -50) onSwipeUp()
                 }
             }
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onDoubleTap = {
+                        com.deskzen.service.LockScreenService.lockScreen()
+                    }
+                )
+            }
     ) {
         HorizontalPager(
             state = pagerState,
@@ -245,8 +256,10 @@ fun HomeScreenContent(
             if (pageIndex < pages.size) {
                 HomePageGrid(
                     page = pages[pageIndex],
+                    pageIndex = pageIndex,
                     onAppClick = onAppClick,
-                    onAppLongClick = onAppLongClick
+                    onAppLongClick = onAppLongClick,
+                    onSwapItems = onSwapItems
                 )
             }
         }
@@ -278,10 +291,14 @@ fun HomeScreenContent(
 @Composable
 fun HomePageGrid(
     page: ScreenPage,
+    pageIndex: Int = 0,
     onAppClick: (String) -> Unit,
-    onAppLongClick: (String) -> Unit
+    onAppLongClick: (String) -> Unit,
+    onSwapItems: (Int, Int, Int) -> Unit = { _, _, _ -> }
 ) {
     val sortedItems = page.items.sortedBy { it.position }
+    // Drag mode: selectedPosition is the item being moved
+    var dragFromPosition by remember { mutableStateOf(-1) }
 
     // Text shadow for readability over wallpaper
     val labelStyle = TextStyle(
@@ -296,10 +313,24 @@ fun HomePageGrid(
         )
     )
 
+    Column(modifier = Modifier.fillMaxSize()) {
+        // Drag mode indicator
+        if (dragFromPosition >= 0) {
+            Text(
+                text = "Tape sur la destination pour déplacer",
+                style = TextStyle(fontSize = 12.sp, color = SoloElectricBlue),
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(SoloDeepBlack.copy(alpha = 0.7f))
+                    .padding(vertical = 4.dp)
+            )
+        }
+
     LazyVerticalGrid(
         columns = GridCells.Fixed(DeskZenDimens.homeGridColumns),
         modifier = Modifier
-            .fillMaxSize()
+            .weight(1f)
             .padding(horizontal = DeskZenDimens.homeGridPaddingH),
         contentPadding = PaddingValues(
             top = DeskZenDimens.spacingMd,
@@ -310,15 +341,36 @@ fun HomePageGrid(
         userScrollEnabled = false
     ) {
         items(sortedItems) { item ->
+            val isDragSource = dragFromPosition == item.position
             when (item) {
                 is ScreenItem.AppShortcut -> {
                     var showMenu by remember { mutableStateOf(false) }
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier
+                            .then(
+                                if (isDragSource) Modifier.background(
+                                    SoloElectricBlue.copy(alpha = 0.3f),
+                                    RoundedCornerShape(8.dp)
+                                ) else Modifier
+                            )
                             .combinedClickable(
-                                onClick = { onAppClick(item.appInfo.packageName) },
-                                onLongClick = { showMenu = true }
+                                onClick = {
+                                    if (dragFromPosition >= 0) {
+                                        // Drop: swap items
+                                        onSwapItems(pageIndex, dragFromPosition, item.position)
+                                        dragFromPosition = -1
+                                    } else {
+                                        onAppClick(item.appInfo.packageName)
+                                    }
+                                },
+                                onLongClick = {
+                                    if (dragFromPosition >= 0) {
+                                        dragFromPosition = -1 // cancel
+                                    } else {
+                                        showMenu = true
+                                    }
+                                }
                             )
                             .padding(vertical = DeskZenDimens.homeIconPadding)
                     ) {
@@ -337,27 +389,49 @@ fun HomePageGrid(
                         )
                         DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
                             DropdownMenuItem(
-                                text = { Text("Informations") },
+                                text = { Text("Déplacer") },
+                                leadingIcon = { Icon(Icons.Default.OpenWith, null) },
+                                onClick = {
+                                    showMenu = false
+                                    dragFromPosition = item.position
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Actions") },
                                 leadingIcon = { Icon(Icons.Default.Info, null) },
                                 onClick = {
                                     showMenu = false
                                     onAppLongClick(item.appInfo.packageName)
                                 }
                             )
-                            DropdownMenuItem(
-                                text = { Text("Désinstaller") },
-                                leadingIcon = { Icon(Icons.Default.Delete, null) },
-                                onClick = { showMenu = false }
-                            )
                         }
                     }
                 }
                 is ScreenItem.Folder -> {
                     var expanded by remember { mutableStateOf(false) }
+                    val isFolderDragSource = dragFromPosition == item.position
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier
-                            .clickable { expanded = true }
+                            .then(
+                                if (isFolderDragSource) Modifier.background(
+                                    SoloElectricBlue.copy(alpha = 0.3f),
+                                    RoundedCornerShape(8.dp)
+                                ) else Modifier
+                            )
+                            .combinedClickable(
+                                onClick = {
+                                    if (dragFromPosition >= 0) {
+                                        onSwapItems(pageIndex, dragFromPosition, item.position)
+                                        dragFromPosition = -1
+                                    } else {
+                                        expanded = true
+                                    }
+                                },
+                                onLongClick = {
+                                    dragFromPosition = item.position
+                                }
+                            )
                             .padding(vertical = DeskZenDimens.homeIconPadding)
                     ) {
                         FolderIcon(folder = item)
@@ -388,6 +462,7 @@ fun HomePageGrid(
             }
         }
     }
+    } // end Column
 }
 
 @Composable

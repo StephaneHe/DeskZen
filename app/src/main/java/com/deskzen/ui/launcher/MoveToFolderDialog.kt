@@ -1,5 +1,6 @@
 package com.deskzen.ui.launcher
 
+import android.content.pm.ShortcutInfo
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,6 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -26,7 +28,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.deskzen.ui.theme.DeskZenDimens
+import com.deskzen.ui.theme.SoloCyan
 import com.deskzen.ui.theme.SoloElectricBlue
 import com.deskzen.ui.theme.SoloGlow
 import com.deskzen.ui.theme.SoloPurple
@@ -38,9 +42,11 @@ fun MoveToFolderDialog(
     packageName: String,
     appLabel: String,
     folders: List<String>,
+    shortcuts: List<ShortcutInfo> = emptyList(),
     onMoveToFolder: (String) -> Unit,
     onAddToHomeScreen: () -> Unit,
     onOpenInfo: () -> Unit,
+    onLaunchShortcut: (ShortcutInfo) -> Unit = {},
     onDismiss: () -> Unit
 ) {
     AlertDialog(
@@ -51,62 +57,100 @@ fun MoveToFolderDialog(
             Text(appLabel, color = SoloGlow, fontWeight = FontWeight.Bold)
         },
         text = {
-            Column {
-                // Add to home screen
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onAddToHomeScreen() }
-                        .padding(vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Default.Home, null, tint = SoloElectricBlue)
-                    Spacer(modifier = Modifier.width(DeskZenDimens.spacingMd))
-                    Text("Raccourci sur l'écran", color = Color.White)
-                }
-
-                // Info
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onOpenInfo() }
-                        .padding(vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Default.Info, null, tint = SoloTextMuted)
-                    Spacer(modifier = Modifier.width(DeskZenDimens.spacingMd))
-                    Text("Informations", color = Color.White)
-                }
-
-                HorizontalDivider(
-                    color = SoloPurple.copy(alpha = 0.2f),
-                    modifier = Modifier.padding(vertical = 8.dp)
-                )
-
-                Text(
-                    "Déplacer vers...",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = SoloPurple,
-                    modifier = Modifier.padding(bottom = 4.dp)
-                )
-
-                LazyColumn(
-                    modifier = Modifier.height(250.dp)
-                ) {
-                    items(folders) { folderName ->
+            LazyColumn(modifier = Modifier.height(350.dp)) {
+                // App shortcuts (new message, etc.)
+                if (shortcuts.isNotEmpty()) {
+                    item {
+                        Text(
+                            "Raccourcis",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = SoloCyan,
+                            modifier = Modifier.padding(bottom = 4.dp)
+                        )
+                    }
+                    items(shortcuts) { shortcut ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { onMoveToFolder(folderName) }
-                                .padding(vertical = 8.dp, horizontal = 4.dp),
+                                .clickable {
+                                    onLaunchShortcut(shortcut)
+                                    onDismiss()
+                                }
+                                .padding(vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            Icon(Icons.Default.OpenInNew, null, tint = SoloCyan, modifier = Modifier.width(20.dp))
+                            Spacer(modifier = Modifier.width(DeskZenDimens.spacingSm))
                             Text(
-                                text = folderName,
+                                text = shortcut.shortLabel?.toString() ?: shortcut.id,
                                 color = Color.White,
-                                style = MaterialTheme.typography.bodyLarge
+                                fontSize = 14.sp
                             )
                         }
+                    }
+                    item {
+                        HorizontalDivider(
+                            color = SoloPurple.copy(alpha = 0.2f),
+                            modifier = Modifier.padding(vertical = 8.dp)
+                        )
+                    }
+                }
+
+                // Actions
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onAddToHomeScreen(); onDismiss() }
+                            .padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Home, null, tint = SoloElectricBlue)
+                        Spacer(modifier = Modifier.width(DeskZenDimens.spacingMd))
+                        Text("Raccourci sur l'écran", color = Color.White)
+                    }
+                }
+
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onOpenInfo(); onDismiss() }
+                            .padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Info, null, tint = SoloTextMuted)
+                        Spacer(modifier = Modifier.width(DeskZenDimens.spacingMd))
+                        Text("Informations", color = Color.White)
+                    }
+                }
+
+                item {
+                    HorizontalDivider(
+                        color = SoloPurple.copy(alpha = 0.2f),
+                        modifier = Modifier.padding(vertical = 8.dp)
+                    )
+                    Text(
+                        "Déplacer vers...",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = SoloPurple,
+                        modifier = Modifier.padding(bottom = 4.dp)
+                    )
+                }
+
+                items(folders) { folderName ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onMoveToFolder(folderName) }
+                            .padding(vertical = 8.dp, horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = folderName,
+                            color = Color.White,
+                            style = MaterialTheme.typography.bodyLarge
+                        )
                     }
                 }
             }

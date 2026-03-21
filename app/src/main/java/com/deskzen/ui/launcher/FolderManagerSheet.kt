@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -56,6 +57,8 @@ fun FolderManagerSheet(
     onAddFolder: (String) -> Unit,
     onRemoveFolder: (String) -> Unit,
     onReDispatch: () -> Unit,
+    onExportBackup: () -> Unit,
+    onImportBackup: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -115,6 +118,34 @@ fun FolderManagerSheet(
                 ) {
                     Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.padding(end = 4.dp))
                     Text("IA Dispatch")
+                }
+            }
+
+            Spacer(modifier = Modifier.height(DeskZenDimens.spacingSm))
+
+            // Backup/Restore
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onExportBackup,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = SoloTextMuted
+                    )
+                ) {
+                    Text("Sauvegarder", fontSize = 12.sp)
+                }
+
+                OutlinedButton(
+                    onClick = onImportBackup,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = SoloTextMuted
+                    )
+                ) {
+                    Text("Restaurer", fontSize = 12.sp)
                 }
             }
 

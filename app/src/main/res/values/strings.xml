@@ -8,4 +8,5 @@
     <string name="screen_apps_title">Applications</string>
     <string name="screen_homescreen_title">Mon Écran</string>
     <string name="screen_suggestions_title">Suggestions IA</string>
+    <string name="accessibility_service_description">Permet à DeskZen de verrouiller l\'écran par double-tap sur l\'écran d\'accueil.</string>
 </resources>

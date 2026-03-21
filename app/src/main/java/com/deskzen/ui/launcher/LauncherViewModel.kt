@@ -437,8 +437,81 @@ class LauncherViewModel @Inject constructor(
         context.startActivity(intent)
     }
 
+    fun getAppShortcuts(packageName: String): List<android.content.pm.ShortcutInfo> {
+        return try {
+            val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as android.content.pm.LauncherApps
+            val query = android.content.pm.LauncherApps.ShortcutQuery().apply {
+                setQueryFlags(
+                    android.content.pm.LauncherApps.ShortcutQuery.FLAG_MATCH_DYNAMIC or
+                    android.content.pm.LauncherApps.ShortcutQuery.FLAG_MATCH_MANIFEST or
+                    android.content.pm.LauncherApps.ShortcutQuery.FLAG_MATCH_PINNED
+                )
+                setPackage(packageName)
+            }
+            launcherApps.getShortcuts(query, android.os.Process.myUserHandle()) ?: emptyList()
+        } catch (e: Exception) {
+            Timber.d("No shortcuts for $packageName: ${e.message}")
+            emptyList()
+        }
+    }
+
+    fun launchShortcut(shortcutInfo: android.content.pm.ShortcutInfo) {
+        try {
+            val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as android.content.pm.LauncherApps
+            launcherApps.startShortcut(shortcutInfo, null, null)
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to launch shortcut")
+        }
+    }
+
     fun refreshApps() {
         loadApps()
     }
 
+    // === Drag & drop ===
+
+    fun swapItems(pageIndex: Int, fromPosition: Int, toPosition: Int) {
+        val page = _uiState.value.pages.getOrNull(pageIndex) ?: return
+        val items = page.items.toMutableList()
+
+        val fromItem = items.find { it.position == fromPosition } ?: return
+        val toItem = items.find { it.position == toPosition }
+
+        val updatedItems = items.map { item ->
+            when {
+                item.position == fromPosition -> {
+                    when (item) {
+                        is ScreenItem.AppShortcut -> item.copy(position = toPosition)
+                        is ScreenItem.Folder -> item.copy(position = toPosition)
+                    }
+                }
+                item.position == toPosition && toItem != null -> {
+                    when (item) {
+                        is ScreenItem.AppShortcut -> item.copy(position = fromPosition)
+                        is ScreenItem.Folder -> item.copy(position = fromPosition)
+                    }
+                }
+                else -> item
+            }
+        }
+
+        val updatedPages = _uiState.value.pages.toMutableList()
+        updatedPages[pageIndex] = page.copy(items = updatedItems)
+        _uiState.value = _uiState.value.copy(pages = updatedPages)
+    }
+
+    // === Backup/Restore ===
+
+    fun exportBackup(): String {
+        return BackupManager.exportToJson(customFolderNames, manualPlacements)
+    }
+
+    fun importBackup(backupData: BackupData) {
+        customFolderNames.clear()
+        customFolderNames.addAll(backupData.customFolders)
+        manualPlacements.clear()
+        manualPlacements.putAll(backupData.manualPlacements)
+        reDispatchWithIA()
+        Timber.d("Imported backup: ${backupData.customFolders.size} folders, ${backupData.manualPlacements.size} placements")
+    }
 }
