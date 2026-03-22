@@ -321,6 +321,9 @@ fun HomeScreenContent(
                 }
             }
     ) {
+        // Quick Toggles
+        QuickTogglesBar()
+
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.weight(1f)
