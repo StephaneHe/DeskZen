@@ -12,7 +12,7 @@ object DeskZenDimens {
     val spacingXl = 32.dp
 
     // Home screen icon sizes
-    val homeIconSize = 56.dp
+    val homeIconSize = 64.dp
     val homeIconPadding = 2.dp
     val homeLabelSize = 12.sp
     val homeLabelMaxLines = 1
@@ -28,8 +28,8 @@ object DeskZenDimens {
     val dockItemCount = 5
 
     // Folder
-    val folderIconSize = 56.dp
-    val folderMiniIconSize = 22.dp
+    val folderIconSize = 64.dp
+    val folderMiniIconSize = 26.dp
     val folderCornerRadius = 12.dp
 
     // App drawer
