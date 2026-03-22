@@ -4,7 +4,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -68,10 +67,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
-import androidx.compose.ui.res.painterResource
-import com.deskzen.R
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -104,12 +100,53 @@ fun LauncherScreen(
 
     Box(modifier = Modifier.fillMaxSize()) {
         // Solo Leveling wallpaper
-        Image(
-            painter = painterResource(id = R.drawable.wallpaper_solo_leveling),
-            contentDescription = null,
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop
-        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color(0xFF050810),
+                            Color(0xFF0A1543),
+                            Color(0xFF0D0D2B),
+                            Color(0xFF1A0A2E),
+                            Color(0xFF0A1543),
+                            Color(0xFF050810)
+                        )
+                    )
+                )
+        ) {
+            // Purple aura glow
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(
+                                SoloPurple.copy(alpha = 0.08f),
+                                Color.Transparent
+                            ),
+                            center = Offset(540f, 600f),
+                            radius = 800f
+                        )
+                    )
+            )
+            // Blue glow bottom
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(
+                                SoloElectricBlue.copy(alpha = 0.06f),
+                                Color.Transparent
+                            ),
+                            center = Offset(540f, 1800f),
+                            radius = 600f
+                        )
+                    )
+            )
+        }
 
         // Home screen pages
         HomeScreenContent(
