@@ -289,6 +289,10 @@ class LauncherViewModel @Inject constructor(
         reDispatchWithIA()
     }
 
+    fun isAppLocked(packageName: String): Boolean {
+        return manualPlacements.containsKey(packageName)
+    }
+
     // Add app from drawer directly to a specific folder
     fun addAppToFolder(packageName: String, targetFolderName: String) {
         manualPlacements[packageName] = targetFolderName

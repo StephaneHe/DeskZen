@@ -156,7 +156,8 @@ fun LauncherScreen(
             onAppClick = viewModel::launchApp,
             onAppLongClick = { pkg -> appToMove = pkg },
             onSwipeUp = viewModel::openDrawer,
-            onSwapItems = viewModel::swapItems
+            onSwapItems = viewModel::swapItems,
+            isAppLocked = viewModel::isAppLocked
         )
 
         // App drawer overlay
@@ -191,6 +192,7 @@ fun LauncherScreen(
                 folders = viewModel.getAllFolders(),
                 onAddFolder = viewModel::addFolder,
                 onRemoveFolder = viewModel::removeFolder,
+                onRenameFolder = viewModel::renameFolder,
                 onReDispatch = {
                     viewModel.reDispatchWithIA()
                     viewModel.hideFolderManager()
@@ -260,7 +262,8 @@ fun HomeScreenContent(
     onAppClick: (String) -> Unit,
     onAppLongClick: (String) -> Unit,
     onSwipeUp: () -> Unit,
-    onSwapItems: (Int, Int, Int) -> Unit = { _, _, _ -> }
+    onSwapItems: (Int, Int, Int) -> Unit = { _, _, _ -> },
+    isAppLocked: (String) -> Boolean = { false }
 ) {
     val pagerState = rememberPagerState(pageCount = { pages.size.coerceAtLeast(1) })
     val statusBarPadding = WindowInsets.statusBars.asPaddingValues()
@@ -269,21 +272,25 @@ fun HomeScreenContent(
         snapshotFlow { pagerState.currentPage }.collect { onPageChanged(it) }
     }
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .padding(top = statusBarPadding.calculateTopPadding())
-            .pointerInput(Unit) {
-                detectVerticalDragGestures { _, dragAmount ->
-                    if (dragAmount < -50) onSwipeUp()
-                }
-            }
             .pointerInput(Unit) {
                 detectTapGestures(
                     onDoubleTap = {
                         com.deskzen.service.LockScreenService.lockScreen()
                     }
                 )
+            }
+    ) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                detectVerticalDragGestures { _, dragAmount ->
+                    if (dragAmount < -50) onSwipeUp()
+                }
             }
     ) {
         HorizontalPager(
@@ -296,7 +303,8 @@ fun HomeScreenContent(
                     pageIndex = pageIndex,
                     onAppClick = onAppClick,
                     onAppLongClick = onAppLongClick,
-                    onSwapItems = onSwapItems
+                    onSwapItems = onSwapItems,
+                    isAppLocked = isAppLocked
                 )
             }
         }
@@ -322,6 +330,7 @@ fun HomeScreenContent(
             )
         }
     }
+    } // end Box
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -331,10 +340,10 @@ fun HomePageGrid(
     pageIndex: Int = 0,
     onAppClick: (String) -> Unit,
     onAppLongClick: (String) -> Unit,
-    onSwapItems: (Int, Int, Int) -> Unit = { _, _, _ -> }
+    onSwapItems: (Int, Int, Int) -> Unit = { _, _, _ -> },
+    isAppLocked: (String) -> Boolean = { false }
 ) {
     val sortedItems = page.items.sortedBy { it.position }
-    // Drag mode: selectedPosition is the item being moved
     var dragFromPosition by remember { mutableStateOf(-1) }
 
     // Text shadow for readability over wallpaper
@@ -490,8 +499,9 @@ fun HomePageGrid(
                             },
                             onMoveApp = { pkg ->
                                 expanded = false
-                                onAppLongClick(pkg) // triggers move dialog
+                                onAppLongClick(pkg)
                             },
+                            isAppLocked = isAppLocked,
                             onDismiss = { expanded = false }
                         )
                     }
@@ -541,10 +551,9 @@ fun FolderSheet(
     folder: ScreenItem.Folder,
     onAppClick: (String) -> Unit,
     onMoveApp: ((String) -> Unit)? = null,
+    isAppLocked: (String) -> Boolean = { false },
     onDismiss: () -> Unit
 ) {
-    var appToMove by remember { mutableStateOf<String?>(null) }
-
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(),
@@ -562,7 +571,7 @@ fun FolderSheet(
                 modifier = Modifier.padding(bottom = DeskZenDimens.spacingMd)
             )
             Text(
-                text = "${folder.apps.size} apps — appui long pour déplacer",
+                text = "${folder.apps.size} apps — appui long pour actions",
                 style = TextStyle(fontSize = 12.sp, color = SoloPurple.copy(alpha = 0.6f)),
                 modifier = Modifier.padding(bottom = DeskZenDimens.spacingSm)
             )
@@ -575,31 +584,34 @@ fun FolderSheet(
                 )
             ) {
                 items(folder.apps) { app ->
-                    var showMenu by remember { mutableStateOf(false) }
+                    val locked = isAppLocked(app.packageName)
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.combinedClickable(
                             onClick = { onAppClick(app.packageName) },
-                            onLongClick = {
-                                if (onMoveApp != null) {
-                                    appToMove = app.packageName
-                                } else {
-                                    showMenu = true
-                                }
-                            }
+                            onLongClick = { onMoveApp?.invoke(app.packageName) }
                         )
                     ) {
-                        AppIcon(
-                            icon = app.icon,
-                            label = app.label,
-                            size = DeskZenDimens.homeIconSize
-                        )
+                        Box {
+                            AppIcon(
+                                icon = app.icon,
+                                label = app.label,
+                                size = DeskZenDimens.homeIconSize
+                            )
+                            if (locked) {
+                                Text(
+                                    "🔒",
+                                    fontSize = 10.sp,
+                                    modifier = Modifier.align(Alignment.BottomEnd)
+                                )
+                            }
+                        }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = app.label,
                             style = TextStyle(
                                 fontSize = DeskZenDimens.homeLabelSize,
-                                color = Color.White
+                                color = if (locked) SoloElectricBlue else Color.White
                             ),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -612,15 +624,8 @@ fun FolderSheet(
             Spacer(modifier = Modifier.height(DeskZenDimens.spacingLg))
         }
     }
-
-    // Move app dialog
-    appToMove?.let { pkg ->
-        onMoveApp?.let { move ->
-            move(pkg)
-            appToMove = null
-        }
-    }
 }
+
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable

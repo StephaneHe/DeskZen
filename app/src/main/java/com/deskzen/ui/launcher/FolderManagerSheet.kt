@@ -1,6 +1,7 @@
 package com.deskzen.ui.launcher
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -9,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -17,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -41,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.deskzen.ui.theme.DeskZenDimens
 import com.deskzen.ui.theme.SoloDeepBlack
 import com.deskzen.ui.theme.SoloElectricBlue
@@ -56,6 +58,7 @@ fun FolderManagerSheet(
     folders: List<Pair<String, Int>>,
     onAddFolder: (String) -> Unit,
     onRemoveFolder: (String) -> Unit,
+    onRenameFolder: (String, String) -> Unit,
     onReDispatch: () -> Unit,
     onExportBackup: () -> Unit,
     onImportBackup: () -> Unit,
@@ -63,6 +66,7 @@ fun FolderManagerSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showAddDialog by remember { mutableStateOf(false) }
+    var folderToRename by remember { mutableStateOf<String?>(null) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -74,7 +78,6 @@ fun FolderManagerSheet(
                 .fillMaxWidth()
                 .padding(DeskZenDimens.spacingMd)
         ) {
-            // Title
             Text(
                 text = "Gestion des dossiers",
                 style = MaterialTheme.typography.headlineSmall.copy(
@@ -82,11 +85,9 @@ fun FolderManagerSheet(
                     fontWeight = FontWeight.Bold
                 )
             )
-
             Spacer(modifier = Modifier.height(4.dp))
-
             Text(
-                text = "${folders.size} dossiers — ${folders.sumOf { it.second }} apps classées",
+                text = "${folders.size} dossiers — ${folders.sumOf { it.second }} apps",
                 style = MaterialTheme.typography.bodySmall,
                 color = SoloTextMuted
             )
@@ -101,20 +102,15 @@ fun FolderManagerSheet(
                 OutlinedButton(
                     onClick = { showAddDialog = true },
                     modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = SoloElectricBlue
-                    )
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = SoloElectricBlue)
                 ) {
                     Icon(Icons.Default.Add, null, modifier = Modifier.padding(end = 4.dp))
                     Text("Ajouter")
                 }
-
                 Button(
                     onClick = onReDispatch,
                     modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = SoloPurple
-                    )
+                    colors = ButtonDefaults.buttonColors(containerColor = SoloPurple)
                 ) {
                     Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.padding(end = 4.dp))
                     Text("IA Dispatch")
@@ -123,7 +119,6 @@ fun FolderManagerSheet(
 
             Spacer(modifier = Modifier.height(DeskZenDimens.spacingSm))
 
-            // Backup/Restore
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -131,22 +126,13 @@ fun FolderManagerSheet(
                 OutlinedButton(
                     onClick = onExportBackup,
                     modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = SoloTextMuted
-                    )
-                ) {
-                    Text("Sauvegarder", fontSize = 12.sp)
-                }
-
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = SoloTextMuted)
+                ) { Text("Sauvegarder", fontSize = 12.sp) }
                 OutlinedButton(
                     onClick = onImportBackup,
                     modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = SoloTextMuted
-                    )
-                ) {
-                    Text("Restaurer", fontSize = 12.sp)
-                }
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = SoloTextMuted)
+                ) { Text("Restaurer", fontSize = 12.sp) }
             }
 
             Spacer(modifier = Modifier.height(DeskZenDimens.spacingMd))
@@ -154,37 +140,32 @@ fun FolderManagerSheet(
             // Folder list
             LazyColumn(
                 verticalArrangement = Arrangement.spacedBy(4.dp),
-                modifier = Modifier.height(400.dp)
+                modifier = Modifier.height(350.dp)
             ) {
                 items(folders) { (name, count) ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(
-                                SoloDeepBlack.copy(alpha = 0.5f),
-                                RoundedCornerShape(8.dp)
-                            )
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                            .background(SoloDeepBlack.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             text = name,
-                            style = MaterialTheme.typography.bodyLarge,
+                            style = MaterialTheme.typography.bodyMedium,
                             color = Color.White,
                             modifier = Modifier.weight(1f)
                         )
                         Text(
-                            text = "$count apps",
+                            text = "$count",
                             style = MaterialTheme.typography.bodySmall,
                             color = SoloPurple
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
+                        IconButton(onClick = { folderToRename = name }) {
+                            Icon(Icons.Default.Edit, "Renommer", tint = SoloElectricBlue.copy(alpha = 0.7f))
+                        }
                         IconButton(onClick = { onRemoveFolder(name) }) {
-                            Icon(
-                                Icons.Default.Delete,
-                                contentDescription = "Supprimer",
-                                tint = SoloError.copy(alpha = 0.7f)
-                            )
+                            Icon(Icons.Default.Delete, "Supprimer", tint = SoloError.copy(alpha = 0.7f))
                         }
                     }
                 }
@@ -195,7 +176,9 @@ fun FolderManagerSheet(
     }
 
     if (showAddDialog) {
-        AddFolderDialog(
+        NameInputDialog(
+            title = "Nouveau dossier",
+            placeholder = "Nom du dossier",
             onConfirm = { name ->
                 onAddFolder(name)
                 showAddDialog = false
@@ -203,26 +186,40 @@ fun FolderManagerSheet(
             onDismiss = { showAddDialog = false }
         )
     }
+
+    folderToRename?.let { oldName ->
+        NameInputDialog(
+            title = "Renommer",
+            placeholder = "Nouveau nom",
+            initialValue = oldName.replace(Regex("^\\p{So}\\s*"), ""),
+            onConfirm = { newName ->
+                onRenameFolder(oldName, newName)
+                folderToRename = null
+            },
+            onDismiss = { folderToRename = null }
+        )
+    }
 }
 
 @Composable
-fun AddFolderDialog(
+fun NameInputDialog(
+    title: String,
+    placeholder: String,
+    initialValue: String = "",
     onConfirm: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var folderName by remember { mutableStateOf("") }
+    var text by remember { mutableStateOf(initialValue) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = SoloSurface,
-        title = {
-            Text("Nouveau dossier", color = SoloGlow)
-        },
+        title = { Text(title, color = SoloGlow) },
         text = {
             OutlinedTextField(
-                value = folderName,
-                onValueChange = { folderName = it },
-                placeholder = { Text("Nom du dossier", color = SoloTextMuted) },
+                value = text,
+                onValueChange = { text = it },
+                placeholder = { Text(placeholder, color = SoloTextMuted) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
                 colors = OutlinedTextFieldDefaults.colors(
@@ -236,9 +233,9 @@ fun AddFolderDialog(
         },
         confirmButton = {
             TextButton(
-                onClick = { if (folderName.isNotBlank()) onConfirm(folderName) },
-                enabled = folderName.isNotBlank()
-            ) { Text("Créer", color = SoloElectricBlue) }
+                onClick = { if (text.isNotBlank()) onConfirm(text) },
+                enabled = text.isNotBlank()
+            ) { Text("OK", color = SoloElectricBlue) }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("Annuler", color = SoloTextMuted) }
