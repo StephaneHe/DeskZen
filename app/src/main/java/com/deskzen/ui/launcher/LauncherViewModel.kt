@@ -29,6 +29,7 @@ data class LauncherUiState(
     val drawerSearchQuery: String = "",
     val suggestions: List<ThemeSuggestion> = emptyList(),
     val showFolderManager: Boolean = false,
+    val dockApps: List<AppInfo?> = listOf(null, null, null, null, null),
     val isFirstLaunch: Boolean = true
 )
 
@@ -65,6 +66,7 @@ class LauncherViewModel @Inject constructor(
                     pages = pages,
                     isFirstLaunch = false
                 )
+                updateDockState()
             } catch (e: Exception) {
                 Timber.e(e, "Failed to load apps")
             }
@@ -516,6 +518,65 @@ class LauncherViewModel @Inject constructor(
         updatedPages[pageIndex] = page.copy(items = updatedItems)
         _uiState.value = _uiState.value.copy(pages = updatedPages)
     }
+
+    // === Dock ===
+
+    private val dockSlots = arrayOfNulls<String>(5) // packageName or null
+
+    init {
+        loadDock()
+    }
+
+    private fun loadDock() {
+        val prefs = context.getSharedPreferences("deskzen_dock", Context.MODE_PRIVATE)
+        for (i in 0 until 5) {
+            dockSlots[i] = prefs.getString("dock_$i", null)
+        }
+        updateDockState()
+    }
+
+    private fun saveDock() {
+        val prefs = context.getSharedPreferences("deskzen_dock", Context.MODE_PRIVATE)
+        val editor = prefs.edit()
+        for (i in 0 until 5) {
+            if (dockSlots[i] != null) {
+                editor.putString("dock_$i", dockSlots[i])
+            } else {
+                editor.remove("dock_$i")
+            }
+        }
+        editor.apply()
+    }
+
+    private fun updateDockState() {
+        val appsByPkg = _uiState.value.allApps.associateBy { it.packageName }
+        val dockApps = dockSlots.map { pkg ->
+            if (pkg != null) appsByPkg[pkg] else null
+        }
+        _uiState.value = _uiState.value.copy(dockApps = dockApps)
+    }
+
+    fun setDockApp(position: Int, packageName: String) {
+        if (position in 0..4) {
+            // Remove if already in dock at another position
+            for (i in 0 until 5) {
+                if (dockSlots[i] == packageName) dockSlots[i] = null
+            }
+            dockSlots[position] = packageName
+            saveDock()
+            updateDockState()
+        }
+    }
+
+    fun removeDockApp(position: Int) {
+        if (position in 0..4) {
+            dockSlots[position] = null
+            saveDock()
+            updateDockState()
+        }
+    }
+
+    fun getDockPositions(): List<Int> = (0..4).toList()
 
     // === Backup/Restore ===
 

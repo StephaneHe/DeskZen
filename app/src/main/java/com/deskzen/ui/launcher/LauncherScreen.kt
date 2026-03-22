@@ -157,7 +157,10 @@ fun LauncherScreen(
             onAppLongClick = { pkg -> appToMove = pkg },
             onSwipeUp = viewModel::openDrawer,
             onSwapItems = viewModel::swapItems,
-            isAppLocked = viewModel::isAppLocked
+            isAppLocked = viewModel::isAppLocked,
+            dockApps = uiState.dockApps,
+            onDockAppClick = viewModel::launchApp,
+            onDockAppLongClick = { pos -> viewModel.removeDockApp(pos) }
         )
 
         // App drawer overlay
@@ -231,12 +234,18 @@ fun LauncherScreen(
                 folders = viewModel.getAllFolderNames(),
                 shortcuts = viewModel.getAppShortcuts(pkg),
                 isLocked = viewModel.isAppLocked(pkg),
+                dockPositions = viewModel.getDockPositions(),
+                currentDockApps = uiState.dockApps.map { it?.packageName },
                 onMoveToFolder = { folderName ->
                     viewModel.moveAppToFolder(pkg, folderName)
                     appToMove = null
                 },
                 onAddToHomeScreen = {
                     viewModel.addAppToHomeScreen(pkg)
+                    appToMove = null
+                },
+                onSetDockPosition = { pos ->
+                    viewModel.setDockApp(pos, pkg)
                     appToMove = null
                 },
                 onOpenInfo = {
@@ -279,7 +288,10 @@ fun HomeScreenContent(
     onAppLongClick: (String) -> Unit,
     onSwipeUp: () -> Unit,
     onSwapItems: (Int, Int, Int) -> Unit = { _, _, _ -> },
-    isAppLocked: (String) -> Boolean = { false }
+    isAppLocked: (String) -> Boolean = { false },
+    dockApps: List<AppInfo?> = emptyList(),
+    onDockAppClick: (String) -> Unit = {},
+    onDockAppLongClick: (Int) -> Unit = {}
 ) {
     val pagerState = rememberPagerState(pageCount = { pages.size.coerceAtLeast(1) })
     val statusBarPadding = WindowInsets.statusBars.asPaddingValues()
@@ -325,11 +337,20 @@ fun HomeScreenContent(
             }
         }
 
+        // Dock
+        if (dockApps.any { it != null }) {
+            DockBar(
+                dockApps = dockApps,
+                onAppClick = onDockAppClick,
+                onAppLongClick = onDockAppLongClick
+            )
+        }
+
         // Page indicator + swipe hint
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 24.dp),
+                .padding(bottom = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             if (pages.size > 1) {
@@ -337,7 +358,7 @@ fun HomeScreenContent(
                     pageCount = pages.size,
                     currentPage = pagerState.currentPage
                 )
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(8.dp))
             }
             Text(
                 text = "⌃",
@@ -779,6 +800,75 @@ fun AppDrawer(
                             )
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun DockBar(
+    dockApps: List<AppInfo?>,
+    onAppClick: (String) -> Unit,
+    onAppLongClick: (Int) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                SoloDeepBlack.copy(alpha = 0.5f),
+                RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+            )
+            .padding(horizontal = DeskZenDimens.spacingMd, vertical = DeskZenDimens.spacingSm),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        dockApps.forEachIndexed { index, app ->
+            if (app != null) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .weight(1f)
+                        .combinedClickable(
+                            onClick = { onAppClick(app.packageName) },
+                            onLongClick = { onAppLongClick(index) }
+                        )
+                ) {
+                    AppIcon(
+                        icon = app.icon,
+                        label = app.label,
+                        size = DeskZenDimens.dockIconSize
+                    )
+                    Text(
+                        text = app.label,
+                        style = TextStyle(
+                            fontSize = 10.sp,
+                            color = Color.White,
+                            textAlign = TextAlign.Center,
+                            shadow = Shadow(
+                                color = Color.Black.copy(alpha = 0.8f),
+                                offset = Offset(0f, 1f),
+                                blurRadius = 3f
+                            )
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            } else {
+                // Empty dock slot
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(DeskZenDimens.dockIconSize),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .background(SoloPurple.copy(alpha = 0.3f), RoundedCornerShape(4.dp))
+                    )
                 }
             }
         }

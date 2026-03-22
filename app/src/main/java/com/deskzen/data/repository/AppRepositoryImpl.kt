@@ -26,19 +26,8 @@ class AppRepositoryImpl @Inject constructor(
 
                 activities.mapNotNull { resolveInfo ->
                     val appInfo = resolveInfo.activityInfo.applicationInfo ?: return@mapNotNull null
-                    val isSystem = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-                    val isUpdatedSystem = (appInfo.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
-
-                    // Only hide pure system apps (not updated by user) when filter is on
-                    // Apps like Chrome, Maps, Gmail are FLAG_SYSTEM but also FLAG_UPDATED_SYSTEM_APP
-                    if (!includeSystem && isSystem && !isUpdatedSystem) {
-                        // Still include if it has a known user-facing package
-                        val isKnownUserApp = KNOWN_USER_FACING_PACKAGES.any {
-                            appInfo.packageName.contains(it)
-                        }
-                        if (!isKnownUserApp) return@mapNotNull null
-                    }
-
+                    // A launcher is the home screen — show ALL apps with a launcher icon
+                    // No filtering. Every app the user can see in the drawer should be here.
                     mapToAppInfo(pm, appInfo)
                 }.sortedBy { it.label.lowercase() }
             } catch (e: Exception) {

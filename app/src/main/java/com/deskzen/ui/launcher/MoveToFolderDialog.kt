@@ -47,8 +47,11 @@ fun MoveToFolderDialog(
     folders: List<String>,
     shortcuts: List<ShortcutInfo> = emptyList(),
     isLocked: Boolean = false,
+    dockPositions: List<Int> = emptyList(),
+    currentDockApps: List<String?> = emptyList(),
     onMoveToFolder: (String) -> Unit,
     onAddToHomeScreen: () -> Unit,
+    onSetDockPosition: (Int) -> Unit = {},
     onOpenInfo: () -> Unit,
     onLaunchShortcut: (ShortcutInfo) -> Unit = {},
     onToggleLock: () -> Unit = {},
@@ -116,6 +119,47 @@ fun MoveToFolderDialog(
                         Spacer(modifier = Modifier.width(DeskZenDimens.spacingMd))
                         Text("Raccourci sur l'écran", color = Color.White)
                     }
+                }
+
+                // Dock positions
+                if (dockPositions.isNotEmpty()) {
+                    item {
+                        HorizontalDivider(color = SoloPurple.copy(alpha = 0.2f), modifier = Modifier.padding(vertical = 8.dp))
+                        Text(
+                            "Dock (barre du bas)",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = SoloElectricBlue,
+                            modifier = Modifier.padding(bottom = 4.dp)
+                        )
+                    }
+                    items(dockPositions) { pos ->
+                        val currentApp = currentDockApps.getOrNull(pos)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onSetDockPosition(pos); onDismiss() }
+                                .padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "Position ${pos + 1}",
+                                color = Color.White,
+                                fontSize = 14.sp
+                            )
+                            if (currentApp != null) {
+                                Spacer(modifier = Modifier.width(DeskZenDimens.spacingSm))
+                                Text(
+                                    "(remplace)",
+                                    color = SoloTextMuted,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                    }
+                }
+
+                item {
+                    HorizontalDivider(color = SoloPurple.copy(alpha = 0.2f), modifier = Modifier.padding(vertical = 8.dp))
                 }
 
                 item {
