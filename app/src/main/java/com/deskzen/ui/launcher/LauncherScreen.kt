@@ -416,11 +416,11 @@ fun HomePageGrid(
             .weight(1f)
             .padding(horizontal = DeskZenDimens.homeGridPaddingH),
         contentPadding = PaddingValues(
-            top = DeskZenDimens.spacingMd,
-            bottom = 8.dp
+            top = DeskZenDimens.spacingSm,
+            bottom = 4.dp
         ),
         horizontalArrangement = Arrangement.spacedBy(DeskZenDimens.homeGridHSpacing),
-        verticalArrangement = Arrangement.spacedBy(DeskZenDimens.homeGridVSpacing),
+        verticalArrangement = Arrangement.SpaceEvenly,
         userScrollEnabled = false
     ) {
         items(sortedItems) { item ->
