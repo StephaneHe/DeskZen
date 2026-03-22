@@ -159,7 +159,7 @@ fun QuickTogglesBar(
             modifier = Modifier.weight(1f)
         )
 
-        // Bluetooth
+        // Bluetooth (direct toggle)
         ToggleChip(
             state = ToggleState(
                 label = "BT",
@@ -168,6 +168,10 @@ fun QuickTogglesBar(
                 activeColor = SoloPurple
             ),
             onClick = {
+                toggleBluetooth(context)
+                btActive = !btActive
+            },
+            onLongClick = {
                 val intent = Intent(Settings.ACTION_BLUETOOTH_SETTINGS)
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 context.startActivity(intent)
@@ -175,16 +179,18 @@ fun QuickTogglesBar(
             modifier = Modifier.weight(1f)
         )
 
-        // Flashlight
+        // Flashlight (direct toggle)
+        var flashOn by remember { mutableStateOf(flashlightOn) }
         ToggleChip(
             state = ToggleState(
                 label = "Lampe",
                 icon = Icons.Default.FlashlightOn,
-                isActive = false,
+                isActive = flashOn,
                 activeColor = Color(0xFFFFD700)
             ),
             onClick = {
                 toggleFlashlight(context)
+                flashOn = flashlightOn
             },
             modifier = Modifier.weight(1f)
         )
@@ -244,6 +250,19 @@ fun ToggleChip(
                 color = iconColor
             )
         )
+    }
+}
+
+@Suppress("DEPRECATION", "MissingPermission")
+fun toggleBluetooth(context: Context) {
+    try {
+        val adapter = android.bluetooth.BluetoothAdapter.getDefaultAdapter() ?: return
+        if (adapter.isEnabled) adapter.disable() else adapter.enable()
+    } catch (e: Exception) {
+        // Fallback to settings if permission denied
+        val intent = Intent(Settings.ACTION_BLUETOOTH_SETTINGS)
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
     }
 }
 
