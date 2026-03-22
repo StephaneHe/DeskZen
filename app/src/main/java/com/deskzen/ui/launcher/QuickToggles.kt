@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.FlashlightOn
+import androidx.compose.material.icons.filled.Nfc
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Icon
@@ -56,23 +57,34 @@ data class ToggleState(
 )
 
 fun isVpnActive(context: Context): Boolean {
-    val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-    val activeNetwork = cm.activeNetwork ?: return false
-    val caps = cm.getNetworkCapabilities(activeNetwork) ?: return false
-    return caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+    return try {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val activeNetwork = cm.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(activeNetwork) ?: return false
+        caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+    } catch (e: Exception) { false }
 }
 
 fun isWifiConnected(context: Context): Boolean {
-    val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-    val activeNetwork = cm.activeNetwork ?: return false
-    val caps = cm.getNetworkCapabilities(activeNetwork) ?: return false
-    return caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+    return try {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val activeNetwork = cm.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(activeNetwork) ?: return false
+        caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+    } catch (e: Exception) { false }
 }
 
 fun isBluetoothEnabled(context: Context): Boolean {
     return try {
         val adapter = android.bluetooth.BluetoothAdapter.getDefaultAdapter()
         adapter?.isEnabled == true
+    } catch (e: Exception) { false }
+}
+
+fun isNfcEnabled(context: Context): Boolean {
+    return try {
+        val nfcAdapter = android.nfc.NfcAdapter.getDefaultAdapter(context)
+        nfcAdapter?.isEnabled == true
     } catch (e: Exception) { false }
 }
 
@@ -86,6 +98,7 @@ fun QuickTogglesBar(
     var vpnActive by remember { mutableStateOf(false) }
     var wifiActive by remember { mutableStateOf(false) }
     var btActive by remember { mutableStateOf(false) }
+    var nfcActive by remember { mutableStateOf(false) }
 
     // Poll state every 3 seconds
     LaunchedEffect(Unit) {
@@ -93,6 +106,7 @@ fun QuickTogglesBar(
             vpnActive = isVpnActive(context)
             wifiActive = isWifiConnected(context)
             btActive = isBluetoothEnabled(context)
+            nfcActive = isNfcEnabled(context)
             delay(3000)
         }
     }
@@ -171,6 +185,22 @@ fun QuickTogglesBar(
             ),
             onClick = {
                 toggleFlashlight(context)
+            },
+            modifier = Modifier.weight(1f)
+        )
+
+        // NFC
+        ToggleChip(
+            state = ToggleState(
+                label = "NFC",
+                icon = Icons.Default.Nfc,
+                isActive = nfcActive,
+                activeColor = Color(0xFF10B981)
+            ),
+            onClick = {
+                val intent = Intent(Settings.ACTION_NFC_SETTINGS)
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(intent)
             },
             modifier = Modifier.weight(1f)
         )
