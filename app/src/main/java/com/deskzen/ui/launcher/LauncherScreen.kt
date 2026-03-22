@@ -420,7 +420,7 @@ fun HomePageGrid(
             bottom = 4.dp
         ),
         horizontalArrangement = Arrangement.spacedBy(DeskZenDimens.homeGridHSpacing),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.SpaceBetween,
         userScrollEnabled = false
     ) {
         items(sortedItems) { item ->
