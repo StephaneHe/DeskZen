@@ -93,11 +93,18 @@ class LauncherViewModel @Inject constructor(
                 .mapNotNull { appsByPackage[it.key] }
         }
 
-        // 1. Custom folders first (user-created) — IA + manual placements
+        // Apps manually placed elsewhere should NEVER be assigned by IA to another folder
+        val manuallyPlacedElsewhere = { pkg: String, currentFolder: String ->
+            val target = manualPlacements[pkg]
+            target != null && target != currentFolder
+        }
+
+        // 1. Custom folders first (user-created) — manual placements + IA fill
         for (customName in customFolderNames) {
             val cleanName = customName.replace(Regex("^\\p{So}\\s*"), "").trim()
-            val iaApps = findAppsForCustomFolder(cleanName, apps, assignedPackages)
             val manualApps = getManualAppsFor(customName)
+            val iaApps = findAppsForCustomFolder(cleanName, apps, assignedPackages)
+                .filter { !manuallyPlacedElsewhere(it.packageName, customName) }
             val combined = (manualApps + iaApps)
                 .distinctBy { it.packageName }
                 .filter { it.packageName !in assignedPackages }
@@ -123,7 +130,7 @@ class LauncherViewModel @Inject constructor(
             val manualApps = getManualAppsFor(folderName)
             val iaApps = theme.apps.filter {
                 it.packageName !in assignedPackages &&
-                        manualPlacements[it.packageName] == null // don't IA-assign manually placed apps
+                        !manuallyPlacedElsewhere(it.packageName, folderName)
             }
             val combined = (manualApps.filter { it.packageName !in assignedPackages } + iaApps)
                 .distinctBy { it.packageName }
@@ -139,10 +146,11 @@ class LauncherViewModel @Inject constructor(
             )
         }
 
-        // 3. "Autres" — unassigned apps + manual placements to Autres
+        // 3. "Autres" — manual placements + unassigned apps
         val autresManual = getManualAppsFor("📱 Autres")
         val autresApps = (autresManual + apps.filter {
-            it.packageName !in assignedPackages && manualPlacements[it.packageName] == null
+            it.packageName !in assignedPackages &&
+                    !manuallyPlacedElsewhere(it.packageName, "📱 Autres")
         }).distinctBy { it.packageName }.filter { it.packageName !in assignedPackages }
         if (autresApps.isNotEmpty()) {
             allItems.add(
@@ -291,6 +299,11 @@ class LauncherViewModel @Inject constructor(
 
     fun isAppLocked(packageName: String): Boolean {
         return manualPlacements.containsKey(packageName)
+    }
+
+    fun unlockApp(packageName: String) {
+        manualPlacements.remove(packageName)
+        reDispatchWithIA()
     }
 
     // Add app from drawer directly to a specific folder

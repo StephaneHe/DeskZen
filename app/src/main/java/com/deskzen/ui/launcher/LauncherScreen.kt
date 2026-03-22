@@ -230,6 +230,7 @@ fun LauncherScreen(
                 appLabel = uiState.allApps.find { it.packageName == pkg }?.label ?: pkg,
                 folders = viewModel.getAllFolderNames(),
                 shortcuts = viewModel.getAppShortcuts(pkg),
+                isLocked = viewModel.isAppLocked(pkg),
                 onMoveToFolder = { folderName ->
                     viewModel.moveAppToFolder(pkg, folderName)
                     appToMove = null
@@ -244,6 +245,21 @@ fun LauncherScreen(
                 },
                 onLaunchShortcut = { shortcut ->
                     viewModel.launchShortcut(shortcut)
+                    appToMove = null
+                },
+                onToggleLock = {
+                    if (viewModel.isAppLocked(pkg)) {
+                        viewModel.unlockApp(pkg)
+                    } else {
+                        // Lock in current folder — find which folder it's in
+                        val currentFolder = uiState.pages
+                            .flatMap { page -> page.items.filterIsInstance<ScreenItem.Folder>() }
+                            .find { folder -> folder.apps.any { it.packageName == pkg } }
+                            ?.name
+                        if (currentFolder != null) {
+                            viewModel.moveAppToFolder(pkg, currentFolder)
+                        }
+                    }
                     appToMove = null
                 },
                 onDismiss = { appToMove = null }
@@ -726,13 +742,12 @@ fun AppDrawer(
             )
         ) {
             items(apps, key = { it.packageName }) { app ->
-                var showMenu by remember { mutableStateOf(false) }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .combinedClickable(
                             onClick = { onAppClick(app.packageName) },
-                            onLongClick = { showMenu = true }
+                            onLongClick = { onAppLongClick(app.packageName) }
                         )
                         .padding(vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -764,21 +779,6 @@ fun AppDrawer(
                             )
                         }
                     }
-                }
-                DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-                    DropdownMenuItem(
-                        text = { Text("Informations") },
-                        leadingIcon = { Icon(Icons.Default.Info, null) },
-                        onClick = {
-                            showMenu = false
-                            onAppLongClick(app.packageName)
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Désinstaller") },
-                        leadingIcon = { Icon(Icons.Default.Delete, null) },
-                        onClick = { showMenu = false }
-                    )
                 }
             }
         }

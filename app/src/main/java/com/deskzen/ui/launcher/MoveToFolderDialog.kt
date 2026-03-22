@@ -15,6 +15,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
@@ -33,6 +35,7 @@ import com.deskzen.ui.theme.DeskZenDimens
 import com.deskzen.ui.theme.SoloCyan
 import com.deskzen.ui.theme.SoloElectricBlue
 import com.deskzen.ui.theme.SoloGlow
+import com.deskzen.ui.theme.SoloGold
 import com.deskzen.ui.theme.SoloPurple
 import com.deskzen.ui.theme.SoloSurface
 import com.deskzen.ui.theme.SoloTextMuted
@@ -43,10 +46,12 @@ fun MoveToFolderDialog(
     appLabel: String,
     folders: List<String>,
     shortcuts: List<ShortcutInfo> = emptyList(),
+    isLocked: Boolean = false,
     onMoveToFolder: (String) -> Unit,
     onAddToHomeScreen: () -> Unit,
     onOpenInfo: () -> Unit,
     onLaunchShortcut: (ShortcutInfo) -> Unit = {},
+    onToggleLock: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     AlertDialog(
@@ -54,11 +59,16 @@ fun MoveToFolderDialog(
         containerColor = SoloSurface,
         shape = RoundedCornerShape(16.dp),
         title = {
-            Text(appLabel, color = SoloGlow, fontWeight = FontWeight.Bold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(appLabel, color = SoloGlow, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                if (isLocked) {
+                    Text("🔒", fontSize = 14.sp)
+                }
+            }
         },
         text = {
-            LazyColumn(modifier = Modifier.height(350.dp)) {
-                // App shortcuts (new message, etc.)
+            LazyColumn(modifier = Modifier.height(380.dp)) {
+                // App shortcuts
                 if (shortcuts.isNotEmpty()) {
                     item {
                         Text(
@@ -89,10 +99,7 @@ fun MoveToFolderDialog(
                         }
                     }
                     item {
-                        HorizontalDivider(
-                            color = SoloPurple.copy(alpha = 0.2f),
-                            modifier = Modifier.padding(vertical = 8.dp)
-                        )
+                        HorizontalDivider(color = SoloPurple.copy(alpha = 0.2f), modifier = Modifier.padding(vertical = 8.dp))
                     }
                 }
 
@@ -125,11 +132,30 @@ fun MoveToFolderDialog(
                     }
                 }
 
+                // Lock/unlock
                 item {
-                    HorizontalDivider(
-                        color = SoloPurple.copy(alpha = 0.2f),
-                        modifier = Modifier.padding(vertical = 8.dp)
-                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onToggleLock(); onDismiss() }
+                            .padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            if (isLocked) Icons.Default.LockOpen else Icons.Default.Lock,
+                            null,
+                            tint = SoloGold
+                        )
+                        Spacer(modifier = Modifier.width(DeskZenDimens.spacingMd))
+                        Text(
+                            if (isLocked) "Déverrouiller (l'IA peut déplacer)" else "Verrouiller ici (l'IA ne touchera plus)",
+                            color = SoloGold
+                        )
+                    }
+                }
+
+                item {
+                    HorizontalDivider(color = SoloPurple.copy(alpha = 0.2f), modifier = Modifier.padding(vertical = 8.dp))
                     Text(
                         "Déplacer vers...",
                         style = MaterialTheme.typography.labelLarge,
