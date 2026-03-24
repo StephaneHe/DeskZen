@@ -31,6 +31,10 @@ import com.deskzen.domain.model.ScreenPage
 import com.deskzen.ui.components.AppIcon
 import com.deskzen.ui.theme.DeskZenDimens
 
+/**
+ * Legacy draggable grid for the organize screen.
+ * The main launcher now uses its own drag system in HomeScreenContent.
+ */
 @Composable
 fun DraggableGrid(
     pages: List<ScreenPage>,
@@ -56,7 +60,6 @@ fun DraggableGrid(
                 .pointerInput(Unit) {
                     detectDragGesturesAfterLongPress(
                         onDragStart = { offset ->
-                            // Find item at offset and start drag
                             dragState = dragState.copy(isDragging = true)
                         },
                         onDrag = { change, dragAmount ->
@@ -79,18 +82,18 @@ fun DraggableGrid(
                                         target.position
                                     )
                                 }
-                                is DropTarget.ExistingItem -> {
+                                is DropTarget.AppOnApp -> {
                                     onMergeItems(
                                         dragState.sourcePage,
                                         dragState.sourcePosition,
                                         target.position
                                     )
                                 }
-                                is DropTarget.Folder -> {
+                                is DropTarget.IntoFolder -> {
                                     val item = dragState.draggedItem
                                     if (item is ScreenItem.AppShortcut) {
                                         onDropInFolder(
-                                            target.folderId,
+                                            target.position.toLong(),
                                             item.appInfo.packageName
                                         )
                                     }

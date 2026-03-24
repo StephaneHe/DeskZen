@@ -7,8 +7,12 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +22,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -36,13 +41,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.OpenWith
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -56,20 +57,35 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.IntOffset
+import com.deskzen.ui.organize.CellBounds
+import com.deskzen.ui.organize.DragState
+import com.deskzen.ui.organize.DropTarget
+import kotlinx.coroutines.launch
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -156,11 +172,15 @@ fun LauncherScreen(
             onAppClick = viewModel::launchApp,
             onAppLongClick = { pkg -> appToMove = pkg },
             onSwipeUp = viewModel::openDrawer,
-            onSwapItems = viewModel::swapItems,
             isAppLocked = viewModel::isAppLocked,
             dockApps = uiState.dockApps,
             onDockAppClick = viewModel::launchApp,
-            onDockAppLongClick = { pos -> viewModel.removeDockApp(pos) }
+            onDockAppLongClick = { pos -> viewModel.removeDockApp(pos) },
+            onMoveItem = viewModel::moveItem,
+            onInsertItem = viewModel::insertItem,
+            onDropIntoFolder = viewModel::dropIntoFolder,
+            onCreateFolderFromDrop = viewModel::createFolderFromDrop,
+            onRemoveFromScreen = viewModel::removeFromScreen
         )
 
         // App drawer overlay
@@ -234,6 +254,7 @@ fun LauncherScreen(
                 folders = viewModel.getAllFolderNames(),
                 shortcuts = viewModel.getAppShortcuts(pkg),
                 isLocked = viewModel.isAppLocked(pkg),
+                currentFolderName = viewModel.getAppFolder(pkg),
                 dockPositions = viewModel.getDockPositions(),
                 currentDockApps = uiState.dockApps.map { it?.packageName },
                 onMoveToFolder = { folderName ->
@@ -242,6 +263,10 @@ fun LauncherScreen(
                 },
                 onAddToHomeScreen = {
                     viewModel.addAppToHomeScreen(pkg)
+                    appToMove = null
+                },
+                onRemoveFromFolder = {
+                    viewModel.removeAppFromFolder(pkg)
                     appToMove = null
                 },
                 onSetDockPosition = { pos ->
@@ -287,23 +312,123 @@ fun HomeScreenContent(
     onAppClick: (String) -> Unit,
     onAppLongClick: (String) -> Unit,
     onSwipeUp: () -> Unit,
-    onSwapItems: (Int, Int, Int) -> Unit = { _, _, _ -> },
     isAppLocked: (String) -> Boolean = { false },
     dockApps: List<AppInfo?> = emptyList(),
     onDockAppClick: (String) -> Unit = {},
-    onDockAppLongClick: (Int) -> Unit = {}
+    onDockAppLongClick: (Int) -> Unit = {},
+    onMoveItem: (Int, Int, Int, Int) -> Unit = { _, _, _, _ -> },
+    onInsertItem: (Int, Int, Int, Int) -> Unit = { _, _, _, _ -> },
+    onDropIntoFolder: (Int, Int, String) -> Unit = { _, _, _ -> },
+    onCreateFolderFromDrop: (Int, Int, String) -> Unit = { _, _, _ -> },
+    onRemoveFromScreen: (Int, Int) -> Unit = { _, _ -> }
 ) {
     val pagerState = rememberPagerState(pageCount = { pages.size.coerceAtLeast(1) })
     val statusBarPadding = WindowInsets.statusBars.asPaddingValues()
+    val coroutineScope = rememberCoroutineScope()
+    val haptics = LocalHapticFeedback.current
+
+    // Drag state
+    var dragState by remember { mutableStateOf(DragState()) }
+    // Cell bounds registry for hit-testing (keyed by "page:position")
+    val cellBoundsMap = remember { mutableStateMapOf<String, CellBounds>() }
+    // Remove zone bounds
+    var removeZoneBounds by remember { mutableStateOf<Rect?>(null) }
+    // Throttle page edge scrolling
+    var lastEdgeScrollTime by remember { mutableLongStateOf(0L) }
 
     LaunchedEffect(pagerState) {
         snapshotFlow { pagerState.currentPage }.collect { onPageChanged(it) }
     }
 
+    // Screen width for edge detection
+    val configuration = LocalContext.current.resources.displayMetrics
+    val screenWidthPx = configuration.widthPixels.toFloat()
+
+    // Resolve drop target from finger position
+    fun resolveDropTarget(fingerPos: Offset): DropTarget? {
+        // Check remove zone first
+        removeZoneBounds?.let { bounds ->
+            if (bounds.contains(fingerPos)) return DropTarget.RemoveZone
+        }
+
+        val currentPage = pagerState.currentPage
+
+        // Find cell under finger on current page
+        for ((_, cell) in cellBoundsMap) {
+            if (cell.page != currentPage) continue
+            if (!cell.bounds.contains(fingerPos)) continue
+
+            val item = cell.item
+            val draggedItem = dragState.draggedItem
+
+            // Same item as source — skip
+            if (cell.page == dragState.sourcePage && cell.position == dragState.sourcePosition) return null
+
+            // Empty slot → direct placement
+            if (item == null) return DropTarget.EmptySlot(cell.page, cell.position)
+
+            // Cell has an item — check if finger is on center (drop-on) or edge (insert)
+            val cellWidth = cell.bounds.width
+            val relativeX = fingerPos.x - cell.bounds.left
+            val centerZone = 0.30f..0.70f // Center 40% = drop on item
+            val normalizedX = relativeX / cellWidth
+
+            val isOnCenter = normalizedX in centerZone
+
+            return if (isOnCenter) {
+                // Center of cell → action depends on item types
+                when {
+                    draggedItem is ScreenItem.AppShortcut && item is ScreenItem.Folder ->
+                        DropTarget.IntoFolder(cell.page, cell.position)
+                    draggedItem is ScreenItem.AppShortcut && item is ScreenItem.AppShortcut ->
+                        DropTarget.AppOnApp(cell.page, cell.position)
+                    // Folder on anything center → insert (no merge)
+                    else -> DropTarget.InsertBefore(cell.page, cell.position)
+                }
+            } else {
+                // Edge of cell → insert before or after
+                if (normalizedX < 0.30f) {
+                    DropTarget.InsertBefore(cell.page, cell.position)
+                } else {
+                    // Right edge → insert after = insert before next position
+                    DropTarget.InsertBefore(cell.page, cell.position + 1)
+                }
+            }
+        }
+        return null
+    }
+
+    // Handle edge scrolling during drag
+    fun checkEdgeScroll(fingerPos: Offset, screenWidth: Float) {
+        val now = System.currentTimeMillis()
+        if (now - lastEdgeScrollTime < 600) return // Throttle
+
+        val edgeZone = screenWidth * 0.15f
+        val targetPage = when {
+            fingerPos.x < edgeZone && pagerState.currentPage > 0 ->
+                pagerState.currentPage - 1
+            fingerPos.x > screenWidth - edgeZone && pagerState.currentPage < pages.size - 1 ->
+                pagerState.currentPage + 1
+            else -> null
+        }
+        if (targetPage != null) {
+            lastEdgeScrollTime = now
+            coroutineScope.launch {
+                pagerState.animateScrollToPage(targetPage)
+            }
+        }
+    }
+
+    // Track root offset of parent box for coordinate conversion
+    var parentRootOffset by remember { mutableStateOf(Offset.Zero) }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .padding(top = statusBarPadding.calculateTopPadding())
+            .onGloballyPositioned { coords ->
+                parentRootOffset = coords.positionInRoot()
+            }
             .pointerInput(Unit) {
                 detectTapGestures(
                     onDoubleTap = {
@@ -311,13 +436,80 @@ fun HomeScreenContent(
                     }
                 )
             }
+            // Parent-level drag tracking: captures ALL pointer events during drag.
+            // Uses PointerEventPass.Initial to intercept before children.
+            // Does NOT wait for a new pointer down — the finger is already pressing.
+            .pointerInput(dragState.isDragging) {
+                if (!dragState.isDragging) return@pointerInput
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                        val change = event.changes.firstOrNull() ?: continue
+
+                        // Convert local position to root coordinates
+                        val rootPos = change.position + parentRootOffset
+
+                        if (!change.pressed) {
+                            // Finger released → resolve drop
+                            val target = dragState.currentDropTarget
+                            val srcPage = dragState.sourcePage
+                            val srcPos = dragState.sourcePosition
+                            val item = dragState.draggedItem
+
+                            when (target) {
+                                is DropTarget.EmptySlot ->
+                                    onMoveItem(srcPage, srcPos, target.page, target.position)
+                                is DropTarget.InsertBefore ->
+                                    onInsertItem(srcPage, srcPos, target.page, target.position)
+                                is DropTarget.AppOnApp -> {
+                                    if (item is ScreenItem.AppShortcut) {
+                                        onCreateFolderFromDrop(target.page, target.position, item.appInfo.packageName)
+                                    }
+                                }
+                                is DropTarget.IntoFolder -> {
+                                    if (item is ScreenItem.AppShortcut) {
+                                        onDropIntoFolder(target.page, target.position, item.appInfo.packageName)
+                                    }
+                                }
+                                is DropTarget.RemoveZone ->
+                                    onRemoveFromScreen(srcPage, srcPos)
+                                null -> { /* Cancelled */ }
+                            }
+
+                            if (target != null) {
+                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            }
+
+                            dragState = DragState()
+                            break
+                        }
+
+                        // Finger moved → update drag state
+                        change.consume()
+                        val offset = rootPos - dragState.startPosition
+                        val newTarget = resolveDropTarget(rootPos)
+
+                        if (newTarget != null && newTarget != dragState.currentDropTarget) {
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        }
+
+                        dragState = dragState.copy(
+                            fingerPosition = rootPos,
+                            dragOffset = offset,
+                            currentDropTarget = newTarget
+                        )
+
+                        checkEdgeScroll(rootPos, screenWidthPx)
+                    }
+                }
+            }
     ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
             .pointerInput(Unit) {
                 detectVerticalDragGestures { _, dragAmount ->
-                    if (dragAmount < -50) onSwipeUp()
+                    if (dragAmount < -50 && !dragState.isDragging) onSwipeUp()
                 }
             }
     ) {
@@ -326,7 +518,8 @@ fun HomeScreenContent(
 
         HorizontalPager(
             state = pagerState,
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.weight(1f),
+            userScrollEnabled = !dragState.isDragging
         ) { pageIndex ->
             if (pageIndex < pages.size) {
                 HomePageGrid(
@@ -334,14 +527,70 @@ fun HomeScreenContent(
                     pageIndex = pageIndex,
                     onAppClick = onAppClick,
                     onAppLongClick = onAppLongClick,
-                    onSwapItems = onSwapItems,
-                    isAppLocked = isAppLocked
+                    isAppLocked = isAppLocked,
+                    dragState = dragState,
+                    onRegisterCellBounds = { pos, bounds, item ->
+                        cellBoundsMap["$pageIndex:$pos"] = CellBounds(pageIndex, pos, bounds, item)
+                    },
+                    onDragStart = { item, position, globalPos ->
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        dragState = DragState(
+                            isDragging = true,
+                            draggedItem = item,
+                            fingerPosition = globalPos,
+                            startPosition = globalPos,
+                            dragOffset = Offset.Zero,
+                            sourcePage = pageIndex,
+                            sourcePosition = position
+                        )
+                        // Parent pointerInput takes over from here
+                    }
                 )
             }
         }
 
-        // Dock
-        if (dockApps.any { it != null }) {
+        // Remove zone (visible during drag)
+        AnimatedVisibility(visible = dragState.isDragging) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = DeskZenDimens.spacingMd, vertical = DeskZenDimens.spacingSm)
+                    .background(
+                        if (dragState.currentDropTarget is DropTarget.RemoveZone)
+                            Color(0xFFB71C1C).copy(alpha = 0.8f)
+                        else Color(0xFF5D0000).copy(alpha = 0.5f),
+                        RoundedCornerShape(12.dp)
+                    )
+                    .onGloballyPositioned { coords ->
+                        val pos = coords.positionInRoot()
+                        val size = coords.size
+                        removeZoneBounds = Rect(
+                            pos.x, pos.y,
+                            pos.x + size.width, pos.y + size.height
+                        )
+                    }
+                    .padding(vertical = 12.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "Retirer",
+                        tint = Color.White
+                    )
+                    Text(
+                        text = "Retirer de l'écran",
+                        style = TextStyle(fontSize = 14.sp, color = Color.White, fontWeight = FontWeight.Medium)
+                    )
+                }
+            }
+        }
+
+        // Dock (hidden during drag)
+        if (!dragState.isDragging && dockApps.any { it != null }) {
             DockBar(
                 dockApps = dockApps,
                 onAppClick = onDockAppClick,
@@ -363,14 +612,59 @@ fun HomeScreenContent(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
             }
-            Text(
-                text = "⌃",
-                style = TextStyle(fontSize = 20.sp, color = Color.White.copy(alpha = 0.4f)),
-                textAlign = TextAlign.Center
-            )
+            if (!dragState.isDragging) {
+                Text(
+                    text = "⌃",
+                    style = TextStyle(fontSize = 20.sp, color = Color.White.copy(alpha = 0.4f)),
+                    textAlign = TextAlign.Center
+                )
+            }
         }
     }
+
+    // Drag overlay — floating icon following finger
+    if (dragState.isDragging && dragState.draggedItem != null) {
+        DragOverlay(
+            dragState = dragState
+        )
+    }
+
     } // end Box
+}
+
+/** Floating icon overlay that follows the finger during drag */
+@Composable
+fun DragOverlay(dragState: DragState) {
+    val item = dragState.draggedItem ?: return
+    val iconSize = DeskZenDimens.homeIconSize
+
+    // Position: startPosition + dragOffset, centered on finger
+    val offsetX = dragState.startPosition.x + dragState.dragOffset.x - with(LocalDensity.current) { iconSize.toPx() / 2 }
+    val offsetY = dragState.startPosition.y + dragState.dragOffset.y - with(LocalDensity.current) { iconSize.toPx() / 2 }
+
+    Box(
+        modifier = Modifier
+            .offset { IntOffset(offsetX.toInt(), offsetY.toInt()) }
+            .graphicsLayer {
+                scaleX = 1.15f
+                scaleY = 1.15f
+                alpha = 0.9f
+                shadowElevation = 16f
+            }
+    ) {
+        when (item) {
+            is ScreenItem.AppShortcut -> {
+                AppIcon(
+                    icon = item.appInfo.icon,
+                    label = item.appInfo.label,
+                    size = iconSize
+                )
+            }
+            is ScreenItem.Folder -> {
+                FolderIcon(folder = item)
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -380,11 +674,18 @@ fun HomePageGrid(
     pageIndex: Int = 0,
     onAppClick: (String) -> Unit,
     onAppLongClick: (String) -> Unit,
-    onSwapItems: (Int, Int, Int) -> Unit = { _, _, _ -> },
-    isAppLocked: (String) -> Boolean = { false }
+    isAppLocked: (String) -> Boolean = { false },
+    dragState: DragState = DragState(),
+    onRegisterCellBounds: (Int, Rect, ScreenItem?) -> Unit = { _, _, _ -> },
+    onDragStart: (ScreenItem, Int, Offset) -> Unit = { _, _, _ -> }
 ) {
     val sortedItems = page.items.sortedBy { it.position }
-    var dragFromPosition by remember { mutableStateOf(-1) }
+    val totalSlots = DeskZenDimens.homeGridColumns * DeskZenDimens.homeGridRows
+
+    // Build position→item map
+    val itemByPosition = remember(sortedItems) {
+        sortedItems.associateBy { it.position }
+    }
 
     // Text shadow for readability over wallpaper
     val labelStyle = TextStyle(
@@ -399,19 +700,10 @@ fun HomePageGrid(
         )
     )
 
+    // Track which folder position is expanded (grid-level state)
+    var expandedFolderPos by remember { mutableStateOf(-1) }
+
     Column(modifier = Modifier.fillMaxSize()) {
-        // Drag mode indicator
-        if (dragFromPosition >= 0) {
-            Text(
-                text = "Tape sur la destination pour déplacer",
-                style = TextStyle(fontSize = 12.sp, color = SoloElectricBlue),
-                textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(SoloDeepBlack.copy(alpha = 0.7f))
-                    .padding(vertical = 4.dp)
-            )
-        }
 
     LazyVerticalGrid(
         columns = GridCells.Fixed(DeskZenDimens.homeGridColumns),
@@ -426,124 +718,162 @@ fun HomePageGrid(
         verticalArrangement = Arrangement.SpaceBetween,
         userScrollEnabled = false
     ) {
-        items(sortedItems) { item ->
-            val isDragSource = dragFromPosition == item.position
-            when (item) {
-                is ScreenItem.AppShortcut -> {
-                    var showMenu by remember { mutableStateOf(false) }
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier
-                            .then(
-                                if (isDragSource) Modifier.background(
-                                    SoloElectricBlue.copy(alpha = 0.3f),
-                                    RoundedCornerShape(8.dp)
-                                ) else Modifier
-                            )
-                            .combinedClickable(
-                                onClick = {
-                                    if (dragFromPosition >= 0) {
-                                        // Drop: swap items
-                                        onSwapItems(pageIndex, dragFromPosition, item.position)
-                                        dragFromPosition = -1
-                                    } else {
-                                        onAppClick(item.appInfo.packageName)
+        items(totalSlots) { position ->
+            val item = itemByPosition[position]
+            val isDragSource = dragState.isDragging &&
+                    dragState.sourcePage == pageIndex &&
+                    dragState.sourcePosition == position
+
+            // Determine if this cell is a drop target
+            val isDropTarget = dragState.isDragging && when (val target = dragState.currentDropTarget) {
+                is DropTarget.EmptySlot -> target.page == pageIndex && target.position == position
+                is DropTarget.InsertBefore -> target.page == pageIndex && target.position == position
+                is DropTarget.AppOnApp -> target.page == pageIndex && target.position == position
+                is DropTarget.IntoFolder -> target.page == pageIndex && target.position == position
+                else -> false
+            }
+
+            // Track cell root position for coordinate conversion
+            var cellRootPos by remember { mutableStateOf(Offset.Zero) }
+            val folderExpanded = item is ScreenItem.Folder && expandedFolderPos == position
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(0.75f)
+                    .onGloballyPositioned { coords ->
+                        val pos = coords.positionInRoot()
+                        val size = coords.size
+                        cellRootPos = pos
+                        val bounds = Rect(pos.x, pos.y, pos.x + size.width, pos.y + size.height)
+                        onRegisterCellBounds(position, bounds, item)
+                    }
+                    .then(
+                        if (isDropTarget) Modifier
+                            .drawBehind {
+                                drawRoundRect(
+                                    color = SoloElectricBlue.copy(alpha = 0.3f),
+                                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(8.dp.toPx())
+                                )
+                            }
+                        else Modifier
+                    )
+                    .then(
+                        if (isDragSource) Modifier.graphicsLayer { alpha = 0.3f }
+                        else Modifier
+                    )
+                    .then(
+                        if (item != null && !dragState.isDragging) {
+                            Modifier.pointerInput(item, pageIndex) {
+                                // Unified gesture: tap → click, long press → menu, long press + drag → drag
+                                // No clickable on inner content — everything goes through here
+                                awaitEachGesture {
+                                    val down = awaitFirstDown(requireUnconsumed = false)
+                                    val longPress = awaitLongPressOrCancellation(down.id)
+                                    if (longPress == null) {
+                                        // Pointer went up before long press threshold (tap)
+                                        // or moved away (swipe → let pager handle)
+                                        // Check if pointer is up = tap, otherwise = swipe
+                                        val isUp = currentEvent.changes.all { !it.pressed }
+                                        if (isUp) {
+                                            when (item) {
+                                                is ScreenItem.AppShortcut ->
+                                                    onAppClick(item.appInfo.packageName)
+                                                is ScreenItem.Folder ->
+                                                    expandedFolderPos = position
+                                            }
+                                        }
+                                        return@awaitEachGesture
                                     }
-                                },
-                                onLongClick = {
-                                    if (dragFromPosition >= 0) {
-                                        dragFromPosition = -1 // cancel
-                                    } else {
-                                        showMenu = true
+
+                                    // Long press confirmed — wait for movement or release
+                                    val touchSlop = viewConfiguration.touchSlop
+
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        val change = event.changes.firstOrNull() ?: break
+
+                                        if (!change.pressed) {
+                                            // Long press + release without move → context menu
+                                            when (item) {
+                                                is ScreenItem.AppShortcut ->
+                                                    onAppLongClick(item.appInfo.packageName)
+                                                is ScreenItem.Folder ->
+                                                    onAppLongClick("folder:${item.name}")
+                                            }
+                                            break
+                                        }
+
+                                        val dragDistance = (change.position - longPress.position).getDistance()
+                                        if (dragDistance > touchSlop) {
+                                            // Movement detected → start drag, parent takes over
+                                            change.consume()
+                                            val rootPos = cellRootPos + change.position
+                                            onDragStart(item, position, rootPos)
+                                            break
+                                        }
                                     }
                                 }
-                            )
-                            .padding(vertical = DeskZenDimens.homeIconPadding)
-                    ) {
-                        AppIcon(
-                            icon = item.appInfo.icon,
-                            label = item.appInfo.label,
-                            size = DeskZenDimens.homeIconSize
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = item.appInfo.label,
-                            style = labelStyle,
-                            maxLines = DeskZenDimens.homeLabelMaxLines,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-                            DropdownMenuItem(
-                                text = { Text("Déplacer") },
-                                leadingIcon = { Icon(Icons.Default.OpenWith, null) },
-                                onClick = {
-                                    showMenu = false
-                                    dragFromPosition = item.position
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Actions") },
-                                leadingIcon = { Icon(Icons.Default.Info, null) },
-                                onClick = {
-                                    showMenu = false
-                                    onAppLongClick(item.appInfo.packageName)
-                                }
-                            )
+                            }
+                        } else Modifier
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                if (item != null && !isDragSource) {
+                    when (item) {
+                        is ScreenItem.AppShortcut -> {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier
+                                    .padding(vertical = DeskZenDimens.homeIconPadding)
+                            ) {
+                                AppIcon(
+                                    icon = item.appInfo.icon,
+                                    label = item.appInfo.label,
+                                    size = DeskZenDimens.homeIconSize
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = item.appInfo.label,
+                                    style = labelStyle,
+                                    maxLines = DeskZenDimens.homeLabelMaxLines,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
                         }
-                    }
-                }
-                is ScreenItem.Folder -> {
-                    var expanded by remember { mutableStateOf(false) }
-                    val isFolderDragSource = dragFromPosition == item.position
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier
-                            .then(
-                                if (isFolderDragSource) Modifier.background(
-                                    SoloElectricBlue.copy(alpha = 0.3f),
-                                    RoundedCornerShape(8.dp)
-                                ) else Modifier
-                            )
-                            .combinedClickable(
-                                onClick = {
-                                    if (dragFromPosition >= 0) {
-                                        onSwapItems(pageIndex, dragFromPosition, item.position)
-                                        dragFromPosition = -1
-                                    } else {
-                                        expanded = true
-                                    }
-                                },
-                                onLongClick = {
-                                    dragFromPosition = item.position
-                                }
-                            )
-                            .padding(vertical = DeskZenDimens.homeIconPadding)
-                    ) {
-                        FolderIcon(folder = item)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = item.name,
-                            style = labelStyle,
-                            maxLines = DeskZenDimens.homeLabelMaxLines,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                    if (expanded) {
-                        FolderSheet(
-                            folder = item,
-                            onAppClick = { pkg ->
-                                expanded = false
-                                onAppClick(pkg)
-                            },
-                            onMoveApp = { pkg ->
-                                expanded = false
-                                onAppLongClick(pkg)
-                            },
-                            isAppLocked = isAppLocked,
-                            onDismiss = { expanded = false }
-                        )
+                        is ScreenItem.Folder -> {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier
+                                    .padding(vertical = DeskZenDimens.homeIconPadding)
+                            ) {
+                                FolderIcon(folder = item)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = item.name,
+                                    style = labelStyle,
+                                    maxLines = DeskZenDimens.homeLabelMaxLines,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                            if (folderExpanded) {
+                                FolderSheet(
+                                    folder = item,
+                                    onAppClick = { pkg ->
+                                        expandedFolderPos = -1
+                                        onAppClick(pkg)
+                                    },
+                                    onMoveApp = { pkg ->
+                                        expandedFolderPos = -1
+                                        onAppLongClick(pkg)
+                                    },
+                                    isAppLocked = isAppLocked,
+                                    onDismiss = { expandedFolderPos = -1 }
+                                )
+                            }
+                        }
                     }
                 }
             }

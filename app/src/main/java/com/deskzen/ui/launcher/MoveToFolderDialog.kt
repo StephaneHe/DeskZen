@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FolderOff
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
@@ -47,10 +48,12 @@ fun MoveToFolderDialog(
     folders: List<String>,
     shortcuts: List<ShortcutInfo> = emptyList(),
     isLocked: Boolean = false,
+    currentFolderName: String? = null,
     dockPositions: List<Int> = emptyList(),
     currentDockApps: List<String?> = emptyList(),
     onMoveToFolder: (String) -> Unit,
     onAddToHomeScreen: () -> Unit,
+    onRemoveFromFolder: () -> Unit = {},
     onSetDockPosition: (Int) -> Unit = {},
     onOpenInfo: () -> Unit,
     onLaunchShortcut: (ShortcutInfo) -> Unit = {},
@@ -118,6 +121,30 @@ fun MoveToFolderDialog(
                         Icon(Icons.Default.Home, null, tint = SoloElectricBlue)
                         Spacer(modifier = Modifier.width(DeskZenDimens.spacingMd))
                         Text("Raccourci sur l'écran", color = Color.White)
+                    }
+                }
+
+                // Remove from folder (only if app is inside a folder)
+                if (currentFolderName != null) {
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onRemoveFromFolder(); onDismiss() }
+                                .padding(vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.FolderOff, null, tint = SoloGold)
+                            Spacer(modifier = Modifier.width(DeskZenDimens.spacingMd))
+                            Column {
+                                Text("Retirer du dossier", color = SoloGold)
+                                Text(
+                                    currentFolderName,
+                                    color = SoloTextMuted,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
                     }
                 }
 

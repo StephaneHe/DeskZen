@@ -12,6 +12,7 @@ import com.deskzen.domain.model.AppInfo
 import com.deskzen.domain.model.ScreenItem
 import com.deskzen.domain.model.ScreenPage
 import com.deskzen.domain.model.ThemeSuggestion
+import com.deskzen.ui.theme.DeskZenDimens
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -308,6 +309,40 @@ class LauncherViewModel @Inject constructor(
         reDispatchWithIA()
     }
 
+    /** Remove app from its current folder → becomes standalone or goes to "Autres" */
+    fun removeAppFromFolder(packageName: String) {
+        // Remove any manual placement so IA won't put it back
+        manualPlacements.remove(packageName)
+
+        // Find and remove from folder in current pages
+        val pages = _uiState.value.pages.toMutableList()
+        for (pi in pages.indices) {
+            val page = pages[pi]
+            val updatedItems = page.items.map { item ->
+                if (item is ScreenItem.Folder && item.apps.any { it.packageName == packageName }) {
+                    item.copy(apps = item.apps.filter { it.packageName != packageName })
+                } else item
+            }
+            // Remove empty folders
+            val cleaned = updatedItems.filter {
+                it !is ScreenItem.Folder || it.apps.isNotEmpty()
+            }
+            if (cleaned != page.items) {
+                pages[pi] = page.copy(items = compactPositions(cleaned))
+            }
+        }
+        _uiState.value = _uiState.value.copy(pages = cleanupEmptyPages(pages))
+    }
+
+    /** Find which folder contains this app, or null */
+    fun getAppFolder(packageName: String): String? {
+        return _uiState.value.pages
+            .flatMap { it.items }
+            .filterIsInstance<ScreenItem.Folder>()
+            .find { folder -> folder.apps.any { it.packageName == packageName } }
+            ?.name
+    }
+
     // Add app from drawer directly to a specific folder
     fun addAppToFolder(packageName: String, targetFolderName: String) {
         manualPlacements[packageName] = targetFolderName
@@ -489,34 +524,250 @@ class LauncherViewModel @Inject constructor(
 
     // === Drag & drop ===
 
-    fun swapItems(pageIndex: Int, fromPosition: Int, toPosition: Int) {
-        val page = _uiState.value.pages.getOrNull(pageIndex) ?: return
-        val items = page.items.toMutableList()
+    private val maxItemsPerPage = DeskZenDimens.homeGridColumns * DeskZenDimens.homeGridRows
 
-        val fromItem = items.find { it.position == fromPosition } ?: return
-        val toItem = items.find { it.position == toPosition }
+    /** Move item to an empty slot (no shifting needed) */
+    fun moveItem(fromPage: Int, fromPos: Int, toPage: Int, toPos: Int) {
+        if (fromPage == toPage && fromPos == toPos) return
+        val pages = _uiState.value.pages.toMutableList()
 
-        val updatedItems = items.map { item ->
-            when {
-                item.position == fromPosition -> {
-                    when (item) {
-                        is ScreenItem.AppShortcut -> item.copy(position = toPosition)
-                        is ScreenItem.Folder -> item.copy(position = toPosition)
-                    }
-                }
-                item.position == toPosition && toItem != null -> {
-                    when (item) {
-                        is ScreenItem.AppShortcut -> item.copy(position = fromPosition)
-                        is ScreenItem.Folder -> item.copy(position = fromPosition)
-                    }
-                }
-                else -> item
+        val srcPage = pages.getOrNull(fromPage) ?: return
+        val item = srcPage.items.find { it.position == fromPos } ?: return
+
+        // Remove from source
+        val srcItems = srcPage.items.filter { it.position != fromPos }
+        pages[fromPage] = srcPage.copy(items = compactPositions(srcItems))
+
+        // Add to destination
+        val dstPage = pages.getOrNull(toPage) ?: return
+        val movedItem = setItemPosition(item, toPos)
+        pages[toPage] = dstPage.copy(items = dstPage.items + movedItem)
+
+        _uiState.value = _uiState.value.copy(pages = cleanupEmptyPages(pages))
+    }
+
+    /** Insert item at position, shifting all items at >= insertPos to the right. Cascades cross-page. */
+    fun insertItem(fromPage: Int, fromPos: Int, toPage: Int, insertAtPos: Int) {
+        if (fromPage == toPage && fromPos == insertAtPos) return
+        val pages = _uiState.value.pages.toMutableList()
+
+        // 1. Extract the dragged item from its source page
+        val srcPage = pages.getOrNull(fromPage) ?: return
+        val draggedItem = srcPage.items.find { it.position == fromPos } ?: return
+
+        if (fromPage == toPage) {
+            // Same page: work on a single item list to avoid position confusion
+            val pageItems = srcPage.items.toMutableList()
+
+            // Remove the dragged item
+            pageItems.removeAll { it.position == fromPos }
+
+            // Compact positions to close the gap
+            val compacted = compactPositions(pageItems).toMutableList()
+
+            // Adjust insert position: if we removed an item before insertAtPos, shift back by 1
+            val effectiveInsert = if (fromPos < insertAtPos) {
+                (insertAtPos - 1).coerceAtLeast(0)
+            } else {
+                insertAtPos
+            }
+
+            // Shift items at >= effectiveInsert to make room
+            val shifted = compacted.map { item ->
+                if (item.position >= effectiveInsert) setItemPosition(item, item.position + 1) else item
+            }.toMutableList()
+
+            // Insert the dragged item
+            shifted.add(setItemPosition(draggedItem, effectiveInsert))
+
+            // Handle overflow
+            cascadeOverflow(pages, fromPage, shifted)
+        } else {
+            // Different pages
+            // Step 1: Remove from source and compact
+            val srcItems = srcPage.items.filter { it.position != fromPos }
+            pages[fromPage] = srcPage.copy(items = compactPositions(srcItems))
+
+            // Step 2: Insert into destination page
+            val dstPage = pages.getOrNull(toPage) ?: return
+            val dstItems = dstPage.items.toMutableList()
+
+            // Shift items at >= insertAtPos to the right
+            val shifted = dstItems.map { item ->
+                if (item.position >= insertAtPos) setItemPosition(item, item.position + 1) else item
+            }.toMutableList()
+
+            // Add the dragged item
+            shifted.add(setItemPosition(draggedItem, insertAtPos))
+
+            // Handle cascade overflow
+            cascadeOverflow(pages, toPage, shifted)
+        }
+
+        _uiState.value = _uiState.value.copy(pages = cleanupEmptyPages(pages))
+    }
+
+    /** Drop an app onto an existing folder */
+    fun dropIntoFolder(pageIndex: Int, folderPosition: Int, appPackageName: String) {
+        val pages = _uiState.value.pages.toMutableList()
+        val page = pages.getOrNull(pageIndex) ?: return
+        val folder = page.items.find { it.position == folderPosition } as? ScreenItem.Folder ?: return
+        val app = _uiState.value.allApps.find { it.packageName == appPackageName } ?: return
+
+        if (folder.apps.any { it.packageName == appPackageName }) return // Already in folder
+
+        // Update folder with new app
+        val updatedFolder = folder.copy(apps = folder.apps + app)
+        val updatedItems = page.items.map { if (it.position == folderPosition) updatedFolder else it }
+        pages[pageIndex] = page.copy(items = updatedItems)
+
+        // Remove the app from its original position (if it was a standalone shortcut)
+        for (pi in pages.indices) {
+            val p = pages[pi]
+            val shortcut = p.items.find { it is ScreenItem.AppShortcut && (it as ScreenItem.AppShortcut).appInfo.packageName == appPackageName }
+            if (shortcut != null && !(pi == pageIndex && shortcut.position == folderPosition)) {
+                val filtered = p.items.filter { it !== shortcut }
+                pages[pi] = p.copy(items = compactPositions(filtered))
+                break
             }
         }
 
-        val updatedPages = _uiState.value.pages.toMutableList()
-        updatedPages[pageIndex] = page.copy(items = updatedItems)
-        _uiState.value = _uiState.value.copy(pages = updatedPages)
+        _uiState.value = _uiState.value.copy(pages = cleanupEmptyPages(pages))
+    }
+
+    /** Drop an app onto another app → create a new folder with both */
+    fun createFolderFromDrop(pageIndex: Int, targetPos: Int, draggedAppPackage: String) {
+        val pages = _uiState.value.pages.toMutableList()
+        val page = pages.getOrNull(pageIndex) ?: return
+        val targetItem = page.items.find { it.position == targetPos } as? ScreenItem.AppShortcut ?: return
+        val draggedApp = _uiState.value.allApps.find { it.packageName == draggedAppPackage } ?: return
+
+        val bothApps = listOf(targetItem.appInfo, draggedApp)
+
+        // Auto-name: try to find a common category, fallback to generic name
+        val folderName = guessAutoFolderName(bothApps)
+
+        val newFolder = ScreenItem.Folder(
+            position = targetPos,
+            name = folderName,
+            apps = bothApps
+        )
+
+        // Replace target app with the new folder
+        var updatedItems = page.items.map { if (it.position == targetPos) newFolder else it }
+
+        // Remove the dragged app from wherever it was
+        updatedItems = updatedItems.filter {
+            !(it is ScreenItem.AppShortcut && it.appInfo.packageName == draggedAppPackage)
+        }
+        pages[pageIndex] = page.copy(items = compactPositions(updatedItems))
+
+        // Also remove dragged app from other pages if needed
+        for (pi in pages.indices) {
+            if (pi == pageIndex) continue
+            val p = pages[pi]
+            val shortcut = p.items.find {
+                it is ScreenItem.AppShortcut && it.appInfo.packageName == draggedAppPackage
+            }
+            if (shortcut != null) {
+                pages[pi] = p.copy(items = compactPositions(p.items.filter { it !== shortcut }))
+                break
+            }
+        }
+
+        _uiState.value = _uiState.value.copy(pages = cleanupEmptyPages(pages))
+    }
+
+    /** Remove an item from the home screen */
+    fun removeFromScreen(pageIndex: Int, position: Int) {
+        val pages = _uiState.value.pages.toMutableList()
+        val page = pages.getOrNull(pageIndex) ?: return
+        val filtered = page.items.filter { it.position != position }
+        pages[pageIndex] = page.copy(items = compactPositions(filtered))
+        _uiState.value = _uiState.value.copy(pages = cleanupEmptyPages(pages))
+    }
+
+    // --- Drag helpers ---
+
+    private fun setItemPosition(item: ScreenItem, newPos: Int): ScreenItem = when (item) {
+        is ScreenItem.AppShortcut -> item.copy(position = newPos)
+        is ScreenItem.Folder -> item.copy(position = newPos)
+    }
+
+    /** Re-number positions 0..n-1 preserving order */
+    private fun compactPositions(items: List<ScreenItem>): List<ScreenItem> {
+        return items.sortedBy { it.position }.mapIndexed { idx, item ->
+            setItemPosition(item, idx)
+        }
+    }
+
+    /** Handle overflow when a page has more than maxItemsPerPage items */
+    private fun cascadeOverflow(pages: MutableList<ScreenPage>, pageIdx: Int, items: MutableList<ScreenItem>) {
+        val sorted = items.sortedBy { it.position }
+        if (sorted.size <= maxItemsPerPage) {
+            pages[pageIdx] = pages[pageIdx].copy(items = sorted)
+            return
+        }
+
+        // Keep first maxItemsPerPage, overflow the rest
+        val keep = sorted.take(maxItemsPerPage)
+        val overflow = sorted.drop(maxItemsPerPage)
+
+        pages[pageIdx] = pages[pageIdx].copy(items = keep)
+
+        // Push overflow to next page
+        val nextPageIdx = pageIdx + 1
+        if (nextPageIdx >= pages.size) {
+            // Create new page
+            val newPage = ScreenPage(
+                pageIndex = nextPageIdx,
+                items = overflow.mapIndexed { idx, item -> setItemPosition(item, idx) }
+            )
+            pages.add(newPage)
+        } else {
+            // Insert at beginning of next page, shifting existing items
+            val nextPage = pages[nextPageIdx]
+            val shiftAmount = overflow.size
+            val shiftedExisting = nextPage.items.map { setItemPosition(it, it.position + shiftAmount) }
+            val insertedOverflow = overflow.mapIndexed { idx, item -> setItemPosition(item, idx) }
+            val combined = (insertedOverflow + shiftedExisting).toMutableList()
+
+            // Recurse if next page also overflows
+            cascadeOverflow(pages, nextPageIdx, combined)
+        }
+    }
+
+    /** Remove empty pages (except keep at least one) */
+    private fun cleanupEmptyPages(pages: List<ScreenPage>): List<ScreenPage> {
+        val nonEmpty = pages.filter { it.items.isNotEmpty() }
+        return if (nonEmpty.isEmpty()) {
+            listOf(ScreenPage(0, emptyList()))
+        } else {
+            nonEmpty.mapIndexed { idx, page -> page.copy(pageIndex = idx) }
+        }
+    }
+
+    /** Auto-generate folder name from apps using the categorizer */
+    private fun guessAutoFolderName(apps: List<AppInfo>): String {
+        // Try to find common category from IA suggestions
+        val suggestions = _uiState.value.suggestions
+        for (theme in suggestions) {
+            val themePackages = theme.apps.map { it.packageName }.toSet()
+            val matchCount = apps.count { it.packageName in themePackages }
+            if (matchCount >= 2) {
+                return "${theme.themeIcon} ${theme.themeName}"
+            }
+        }
+
+        // Try common category field
+        val categories = apps.mapNotNull { it.category }.distinct()
+        if (categories.size == 1) {
+            val emoji = pickEmojiForFolder(categories.first())
+            return "$emoji ${categories.first()}"
+        }
+
+        // Fallback
+        return "📂 Dossier"
     }
 
     // === Dock ===
