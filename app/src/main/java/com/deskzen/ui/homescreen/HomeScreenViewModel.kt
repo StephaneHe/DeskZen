@@ -84,6 +84,7 @@ class HomeScreenViewModel @Inject constructor(
                     when (item) {
                         is ScreenItem.AppShortcut -> listOf(item.appInfo.packageName)
                         is ScreenItem.Folder -> item.apps.map { it.packageName }
+                        is ScreenItem.WebShortcut -> emptyList()
                     }
                 }
             }

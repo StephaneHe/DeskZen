@@ -41,7 +41,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.foundation.Image
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -52,6 +55,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -77,6 +81,8 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -103,6 +109,7 @@ import com.deskzen.ui.theme.SoloElectricBlue
 import com.deskzen.ui.theme.SoloGlow
 import com.deskzen.ui.theme.SoloPurple
 import com.deskzen.ui.theme.SoloSurface
+import com.deskzen.ui.theme.SoloTextMuted
 
 @Composable
 fun LauncherScreen(
@@ -111,8 +118,8 @@ fun LauncherScreen(
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     var appToMove by remember { mutableStateOf<String?>(null) }
-
-
+    // Web shortcut dialog state: Pair(pageIndex, position) or null
+    var webShortcutTarget by remember { mutableStateOf<Pair<Int, Int>?>(null) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         // Solo Leveling wallpaper
@@ -176,6 +183,8 @@ fun LauncherScreen(
             dockApps = uiState.dockApps,
             onDockAppClick = viewModel::launchApp,
             onDockAppLongClick = { pos -> viewModel.removeDockApp(pos) },
+            onWebShortcutClick = viewModel::openUrl,
+            onEmptyCellLongPress = { page, pos -> webShortcutTarget = Pair(page, pos) },
             onMoveItem = viewModel::moveItem,
             onInsertItem = viewModel::insertItem,
             onDropIntoFolder = viewModel::dropIntoFolder,
@@ -300,6 +309,17 @@ fun LauncherScreen(
             )
         }
 
+        // Web shortcut dialog
+        webShortcutTarget?.let { (page, pos) ->
+            AddWebShortcutDialog(
+                onConfirm = { url, label ->
+                    viewModel.addWebShortcut(page, pos, url, label)
+                    webShortcutTarget = null
+                },
+                onFetchTitle = { url -> viewModel.fetchPageTitle(url) },
+                onDismiss = { webShortcutTarget = null }
+            )
+        }
 
     }
 }
@@ -316,6 +336,8 @@ fun HomeScreenContent(
     dockApps: List<AppInfo?> = emptyList(),
     onDockAppClick: (String) -> Unit = {},
     onDockAppLongClick: (Int) -> Unit = {},
+    onWebShortcutClick: (String) -> Unit = {},
+    onEmptyCellLongPress: (Int, Int) -> Unit = { _, _ -> },
     onMoveItem: (Int, Int, Int, Int) -> Unit = { _, _, _, _ -> },
     onInsertItem: (Int, Int, Int, Int) -> Unit = { _, _, _, _ -> },
     onDropIntoFolder: (Int, Int, String) -> Unit = { _, _, _ -> },
@@ -527,6 +549,8 @@ fun HomeScreenContent(
                     pageIndex = pageIndex,
                     onAppClick = onAppClick,
                     onAppLongClick = onAppLongClick,
+                    onWebShortcutClick = onWebShortcutClick,
+                    onEmptyCellLongPress = onEmptyCellLongPress,
                     isAppLocked = isAppLocked,
                     dragState = dragState,
                     onRegisterCellBounds = { pos, bounds, item ->
@@ -663,6 +687,9 @@ fun DragOverlay(dragState: DragState) {
             is ScreenItem.Folder -> {
                 FolderIcon(folder = item)
             }
+            is ScreenItem.WebShortcut -> {
+                WebShortcutIcon(shortcut = item, size = iconSize)
+            }
         }
     }
 }
@@ -674,6 +701,8 @@ fun HomePageGrid(
     pageIndex: Int = 0,
     onAppClick: (String) -> Unit,
     onAppLongClick: (String) -> Unit,
+    onWebShortcutClick: (String) -> Unit = {},
+    onEmptyCellLongPress: (Int, Int) -> Unit = { _, _ -> },
     isAppLocked: (String) -> Boolean = { false },
     dragState: DragState = DragState(),
     onRegisterCellBounds: (Int, Rect, ScreenItem?) -> Unit = { _, _, _ -> },
@@ -763,30 +792,37 @@ fun HomePageGrid(
                         else Modifier
                     )
                     .then(
-                        if (item != null && !dragState.isDragging) {
-                            Modifier.pointerInput(item, pageIndex) {
-                                // Unified gesture: tap → click, long press → menu, long press + drag → drag
-                                // No clickable on inner content — everything goes through here
+                        if (!dragState.isDragging) {
+                            Modifier.pointerInput(item, pageIndex, position) {
                                 awaitEachGesture {
                                     val down = awaitFirstDown(requireUnconsumed = false)
                                     val longPress = awaitLongPressOrCancellation(down.id)
                                     if (longPress == null) {
-                                        // Pointer went up before long press threshold (tap)
-                                        // or moved away (swipe → let pager handle)
-                                        // Check if pointer is up = tap, otherwise = swipe
-                                        val isUp = currentEvent.changes.all { !it.pressed }
-                                        if (isUp) {
-                                            when (item) {
-                                                is ScreenItem.AppShortcut ->
-                                                    onAppClick(item.appInfo.packageName)
-                                                is ScreenItem.Folder ->
-                                                    expandedFolderPos = position
+                                        // Tap or swipe — only handle tap on items
+                                        if (item != null) {
+                                            val isUp = currentEvent.changes.all { !it.pressed }
+                                            if (isUp) {
+                                                when (item) {
+                                                    is ScreenItem.AppShortcut ->
+                                                        onAppClick(item.appInfo.packageName)
+                                                    is ScreenItem.Folder ->
+                                                        expandedFolderPos = position
+                                                    is ScreenItem.WebShortcut ->
+                                                        onWebShortcutClick(item.url)
+                                                }
                                             }
                                         }
                                         return@awaitEachGesture
                                     }
 
-                                    // Long press confirmed — wait for movement or release
+                                    // Long press confirmed
+                                    if (item == null) {
+                                        // Empty cell → propose adding web shortcut
+                                        onEmptyCellLongPress(pageIndex, position)
+                                        return@awaitEachGesture
+                                    }
+
+                                    // Item present — wait for movement or release
                                     val touchSlop = viewConfiguration.touchSlop
 
                                     while (true) {
@@ -800,6 +836,8 @@ fun HomePageGrid(
                                                     onAppLongClick(item.appInfo.packageName)
                                                 is ScreenItem.Folder ->
                                                     onAppLongClick("folder:${item.name}")
+                                                is ScreenItem.WebShortcut ->
+                                                    onAppLongClick("web:${item.url}")
                                             }
                                             break
                                         }
@@ -871,6 +909,23 @@ fun HomePageGrid(
                                     },
                                     isAppLocked = isAppLocked,
                                     onDismiss = { expandedFolderPos = -1 }
+                                )
+                            }
+                        }
+                        is ScreenItem.WebShortcut -> {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier
+                                    .padding(vertical = DeskZenDimens.homeIconPadding)
+                            ) {
+                                WebShortcutIcon(shortcut = item, size = DeskZenDimens.homeIconSize)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = item.label,
+                                    style = labelStyle,
+                                    maxLines = DeskZenDimens.homeLabelMaxLines,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.fillMaxWidth()
                                 )
                             }
                         }
@@ -1137,6 +1192,164 @@ fun AppDrawer(
             }
         }
     }
+}
+
+/** Icon for a web shortcut — shows favicon or default globe */
+@Composable
+fun WebShortcutIcon(shortcut: ScreenItem.WebShortcut, size: androidx.compose.ui.unit.Dp) {
+    if (shortcut.favicon != null) {
+        Image(
+            bitmap = shortcut.favicon.asImageBitmap(),
+            contentDescription = shortcut.label,
+            modifier = Modifier.size(size),
+            contentScale = ContentScale.Fit
+        )
+    } else {
+        Icon(
+            imageVector = Icons.Default.Language,
+            contentDescription = shortcut.label,
+            modifier = Modifier.size(size),
+            tint = SoloElectricBlue
+        )
+    }
+}
+
+/** Dialog to add a web shortcut */
+@Composable
+fun AddWebShortcutDialog(
+    onConfirm: (url: String, label: String) -> Unit,
+    onFetchTitle: suspend (String) -> String?,
+    onDismiss: () -> Unit
+) {
+    var useHttps by remember { mutableStateOf(true) }
+    var domain by remember { mutableStateOf("") }
+    var label by remember { mutableStateOf("") }
+    var isFetching by remember { mutableStateOf(false) }
+    var fetchError by remember { mutableStateOf<String?>(null) }
+    val coroutineScope = rememberCoroutineScope()
+
+    fun buildUrl(): String {
+        val scheme = if (useHttps) "https://" else "http://"
+        return scheme + domain.trim()
+    }
+
+    fun fetchTitleFromUrl() {
+        val fullUrl = buildUrl()
+        if (domain.isNotBlank()) {
+            isFetching = true
+            fetchError = null
+            coroutineScope.launch {
+                val title = onFetchTitle(fullUrl)
+                if (title != null) {
+                    label = title
+                } else {
+                    fetchError = "Impossible de charger le titre"
+                }
+                isFetching = false
+            }
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = SoloSurface,
+        shape = RoundedCornerShape(16.dp),
+        title = {
+            Text("Raccourci web", color = SoloGlow, fontWeight = FontWeight.Bold)
+        },
+        text = {
+            Column {
+                // Protocol toggle
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                ) {
+                    TextButton(
+                        onClick = { useHttps = true },
+                        modifier = Modifier.background(
+                            if (useHttps) SoloElectricBlue.copy(alpha = 0.2f) else Color.Transparent,
+                            RoundedCornerShape(8.dp)
+                        )
+                    ) {
+                        Text("https://", color = if (useHttps) SoloElectricBlue else SoloPurple.copy(alpha = 0.5f))
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                    TextButton(
+                        onClick = { useHttps = false },
+                        modifier = Modifier.background(
+                            if (!useHttps) SoloElectricBlue.copy(alpha = 0.2f) else Color.Transparent,
+                            RoundedCornerShape(8.dp)
+                        )
+                    ) {
+                        Text("http://", color = if (!useHttps) SoloElectricBlue else SoloPurple.copy(alpha = 0.5f))
+                    }
+                }
+
+                OutlinedTextField(
+                    value = domain,
+                    onValueChange = { domain = it.removePrefix("https://").removePrefix("http://") },
+                    label = { Text("Adresse", color = SoloPurple) },
+                    placeholder = { Text("example.com", color = Color.White.copy(alpha = 0.3f)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = SoloElectricBlue,
+                        unfocusedBorderColor = SoloPurple.copy(alpha = 0.3f),
+                        cursorColor = SoloElectricBlue,
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    )
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = label,
+                    onValueChange = { label = it },
+                    label = { Text("Nom", color = SoloPurple) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = SoloElectricBlue,
+                        unfocusedBorderColor = SoloPurple.copy(alpha = 0.3f),
+                        cursorColor = SoloElectricBlue,
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    )
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                if (isFetching) {
+                    Text("Chargement du titre...", color = SoloPurple, fontSize = 12.sp)
+                }
+                fetchError?.let {
+                    Text(it, color = Color(0xFFFF6B6B), fontSize = 12.sp)
+                }
+                TextButton(
+                    onClick = { fetchTitleFromUrl() },
+                    enabled = !isFetching && domain.isNotBlank()
+                ) {
+                    Text("Charger le titre automatiquement", color = SoloElectricBlue, fontSize = 13.sp)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val fullUrl = buildUrl()
+                    val finalLabel = label.ifBlank { domain }
+                    if (domain.isNotBlank()) {
+                        onConfirm(fullUrl.trim(), finalLabel.trim())
+                    }
+                },
+                enabled = domain.isNotBlank()
+            ) {
+                Text("Ajouter", color = SoloGlow)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Annuler", color = SoloTextMuted)
+            }
+        }
+    )
 }
 
 @OptIn(ExperimentalFoundationApi::class)

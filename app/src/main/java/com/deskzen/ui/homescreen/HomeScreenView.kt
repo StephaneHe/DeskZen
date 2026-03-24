@@ -29,6 +29,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CreateNewFolder
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.AddCircleOutline
 import androidx.compose.material.icons.outlined.Smartphone
@@ -255,6 +256,32 @@ fun ScreenPageGrid(
                             }
                             Text(
                                 text = item.name,
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+                    is ScreenItem.WebShortcut -> {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier
+                                .aspectRatio(0.8f)
+                                .combinedClickable(
+                                    onClick = {},
+                                    onLongClick = { onItemLongPress(position) }
+                                )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Language,
+                                contentDescription = item.label,
+                                modifier = Modifier.size(DeskZenDimens.appIconMedium),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = item.label,
                                 style = MaterialTheme.typography.labelSmall,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,

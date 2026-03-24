@@ -74,6 +74,18 @@ class ScreenRepositoryImpl @Inject constructor(
                             )
                         }
                     }
+                    is ScreenItem.WebShortcut -> {
+                        itemEntities.add(
+                            ScreenItemEntity(
+                                pageIndex = page.pageIndex,
+                                position = item.position,
+                                type = "web",
+                                packageName = item.url,
+                                folderName = item.label,
+                                folderColor = null
+                            )
+                        )
+                    }
                 }
             }
         }
@@ -152,6 +164,14 @@ class ScreenRepositoryImpl @Inject constructor(
                     name = entity.folderName ?: "Dossier",
                     apps = emptyList(), // Will be enriched later
                     color = entity.folderColor
+                )
+            }
+            "web" -> {
+                val url = entity.packageName ?: return null
+                ScreenItem.WebShortcut(
+                    position = entity.position,
+                    url = url,
+                    label = entity.folderName ?: url
                 )
             }
             else -> null

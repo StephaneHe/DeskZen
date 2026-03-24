@@ -134,6 +134,12 @@ fun DraggableGrid(
                                 style = MaterialTheme.typography.labelSmall
                             )
                         }
+                        is ScreenItem.WebShortcut -> {
+                            Text(
+                                text = item.label,
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
                     }
                 } else {
                     Box(modifier = Modifier.aspectRatio(1f).padding(4.dp))

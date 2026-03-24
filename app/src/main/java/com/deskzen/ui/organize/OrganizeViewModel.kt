@@ -108,13 +108,16 @@ class OrganizeViewModel @Inject constructor(
                         type = when (item) {
                             is ScreenItem.AppShortcut -> "app"
                             is ScreenItem.Folder -> "folder"
+                            is ScreenItem.WebShortcut -> "web"
                         },
                         packageName = when (item) {
                             is ScreenItem.AppShortcut -> item.appInfo.packageName
                             is ScreenItem.Folder -> null
+                            is ScreenItem.WebShortcut -> item.url
                         },
                         folderName = when (item) {
                             is ScreenItem.Folder -> item.name
+                            is ScreenItem.WebShortcut -> item.label
                             else -> null
                         },
                         folderColor = when (item) {

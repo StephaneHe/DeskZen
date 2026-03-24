@@ -50,6 +50,19 @@ class LauncherViewModel @Inject constructor(
     // Manual app placements: packageName -> folderName (locked from IA)
     private val manualPlacements = mutableMapOf<String, String>()
 
+    // Standalone items on home screen (app shortcuts + web shortcuts) — survive IA rebuilds
+    // Key: "page:position", Value: the item
+    private val standaloneItems = mutableListOf<StandaloneItem>()
+
+    data class StandaloneItem(
+        val pageIndex: Int,
+        val position: Int,
+        val packageName: String? = null,  // for AppShortcut
+        val webUrl: String? = null,       // for WebShortcut
+        val webLabel: String? = null,
+        val webFavicon: android.graphics.Bitmap? = null
+    )
+
     init {
         loadApps()
     }
@@ -173,9 +186,43 @@ class LauncherViewModel @Inject constructor(
                     when (item) {
                         is ScreenItem.Folder -> item.copy(position = idx)
                         is ScreenItem.AppShortcut -> item.copy(position = idx)
+                        is ScreenItem.WebShortcut -> item.copy(position = idx)
                     }
                 }
             )
+        }.toMutableList()
+
+        // Re-inject standalone items (app shortcuts + web shortcuts) that were manually placed
+        for (standalone in standaloneItems) {
+            // Ensure page exists
+            while (pages.size <= standalone.pageIndex) {
+                pages.add(ScreenPage(pageIndex = pages.size, items = emptyList()))
+            }
+            val page = pages[standalone.pageIndex]
+
+            // Check position not already occupied
+            if (page.items.any { it.position == standalone.position }) continue
+
+            val item: ScreenItem? = when {
+                standalone.packageName != null -> {
+                    val appInfo = appsByPackage[standalone.packageName]
+                    if (appInfo != null) ScreenItem.AppShortcut(standalone.position, appInfo)
+                    else null
+                }
+                standalone.webUrl != null -> {
+                    ScreenItem.WebShortcut(
+                        position = standalone.position,
+                        url = standalone.webUrl,
+                        label = standalone.webLabel ?: standalone.webUrl,
+                        favicon = standalone.webFavicon
+                    )
+                }
+                else -> null
+            }
+
+            if (item != null) {
+                pages[standalone.pageIndex] = page.copy(items = page.items + item)
+            }
         }
 
         return pages.ifEmpty { listOf(ScreenPage(0, emptyList())) }
@@ -251,16 +298,36 @@ class LauncherViewModel @Inject constructor(
     }
 
     fun renameFolder(oldName: String, newName: String) {
+        val iconName = pickEmojiForFolder(newName)
+        val fullNewName = "$iconName $newName"
+
+        // Update custom folder names
         if (customFolderNames.remove(oldName)) {
-            val iconName = pickEmojiForFolder(newName)
-            val fullNewName = "$iconName $newName"
             customFolderNames.add(fullNewName)
-            // Update manual placements
-            manualPlacements.entries.filter { it.value == oldName }.forEach {
-                manualPlacements[it.key] = fullNewName
+        } else {
+            // Was an IA-created folder — register as custom so it persists
+            customFolderNames.add(fullNewName)
+        }
+
+        // Update manual placements
+        manualPlacements.entries.filter { it.value == oldName }.forEach {
+            manualPlacements[it.key] = fullNewName
+        }
+
+        // Update folder name directly in current pages
+        val pages = _uiState.value.pages.toMutableList()
+        for (pi in pages.indices) {
+            val page = pages[pi]
+            val updatedItems = page.items.map { item ->
+                if (item is ScreenItem.Folder && item.name == oldName) {
+                    item.copy(name = fullNewName)
+                } else item
+            }
+            if (updatedItems != page.items) {
+                pages[pi] = page.copy(items = updatedItems)
             }
         }
-        reDispatchWithIA()
+        _uiState.value = _uiState.value.copy(pages = pages)
     }
 
     fun reDispatchWithIA() {
@@ -353,7 +420,6 @@ class LauncherViewModel @Inject constructor(
     fun addAppToHomeScreen(packageName: String) {
         val app = _uiState.value.allApps.find { it.packageName == packageName } ?: return
         val currentPages = _uiState.value.pages.toMutableList()
-        val page = currentPages.firstOrNull() ?: return
 
         // Find first page with room for a standalone shortcut
         val maxItems = 20
@@ -361,9 +427,12 @@ class LauncherViewModel @Inject constructor(
             val p = currentPages[i]
             if (p.items.size < maxItems) {
                 val maxPos = p.items.maxOfOrNull { it.position } ?: -1
-                val newItem = ScreenItem.AppShortcut(position = maxPos + 1, appInfo = app)
+                val pos = maxPos + 1
+                val newItem = ScreenItem.AppShortcut(position = pos, appInfo = app)
                 currentPages[i] = p.copy(items = p.items + newItem)
                 _uiState.value = _uiState.value.copy(pages = currentPages)
+                // Persist as standalone
+                standaloneItems.add(StandaloneItem(pageIndex = i, position = pos, packageName = packageName))
                 return
             }
         }
@@ -375,6 +444,7 @@ class LauncherViewModel @Inject constructor(
         )
         currentPages.add(newPage)
         _uiState.value = _uiState.value.copy(pages = currentPages)
+        standaloneItems.add(StandaloneItem(pageIndex = currentPages.size - 1, position = 0, packageName = packageName))
     }
 
     private fun pickEmojiForFolder(name: String): String {
@@ -520,6 +590,149 @@ class LauncherViewModel @Inject constructor(
 
     fun refreshApps() {
         loadApps()
+    }
+
+    // === Web shortcuts ===
+
+    /** Add a web shortcut to the home screen at the given page/position */
+    fun addWebShortcut(pageIndex: Int, position: Int, url: String, label: String) {
+        viewModelScope.launch {
+            // Fetch favicon in background
+            val favicon = fetchFavicon(url)
+            android.util.Log.e("DeskZen", "addWebShortcut: url=$url favicon=${favicon != null} size=${favicon?.width}x${favicon?.height}")
+            val shortcut = ScreenItem.WebShortcut(
+                position = position,
+                url = url,
+                label = label,
+                favicon = favicon
+            )
+            val pages = _uiState.value.pages.toMutableList()
+            if (pageIndex < pages.size) {
+                val page = pages[pageIndex]
+                pages[pageIndex] = page.copy(items = page.items + shortcut)
+            }
+            _uiState.value = _uiState.value.copy(pages = pages)
+            // Persist as standalone
+            standaloneItems.add(StandaloneItem(
+                pageIndex = pageIndex,
+                position = position,
+                webUrl = url,
+                webLabel = label,
+                webFavicon = favicon
+            ))
+        }
+    }
+
+    /** Launch a URL in the browser */
+    fun openUrl(url: String) {
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        try {
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to open URL: $url")
+        }
+    }
+
+    /** Fetch favicon for a URL. Tries: 1) direct /favicon.ico on site, 2) Google's service */
+    private suspend fun fetchFavicon(url: String): android.graphics.Bitmap? {
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val uri = Uri.parse(url)
+                val scheme = uri.scheme ?: "https"
+                val host = uri.host ?: return@withContext null
+                val port = uri.port
+                val authority = if (port > 0 && port != 80 && port != 443) "$host:$port" else host
+
+                // 1) Try direct favicon from the site itself
+                val directUrls = listOf(
+                    "$scheme://$authority/favicon.ico",
+                    "$scheme://$authority/static/favicon.ico"
+                )
+                for (directUrl in directUrls) {
+                    val bitmap = fetchBitmapFromUrl(directUrl)
+                    if (bitmap != null) {
+                        android.util.Log.d("DeskZen", "Favicon from direct: $directUrl (${bitmap.width}x${bitmap.height})")
+                        return@withContext bitmap
+                    }
+                }
+
+                // 2) Try Google's favicon service (for public sites)
+                val googleUrl = "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=$scheme://$authority&size=128"
+                val bitmap = fetchBitmapFromUrl(googleUrl)
+                if (bitmap != null) {
+                    android.util.Log.d("DeskZen", "Favicon from Google: ${bitmap.width}x${bitmap.height}")
+                }
+                bitmap
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to fetch favicon")
+                null
+            }
+        }
+    }
+
+    /** Helper: fetch a bitmap from URL, following redirects */
+    private fun fetchBitmapFromUrl(targetUrl: String): android.graphics.Bitmap? {
+        var currentUrl = targetUrl
+        for (i in 0 until 5) {
+            try {
+                val connection = java.net.URL(currentUrl).openConnection() as java.net.HttpURLConnection
+                connection.instanceFollowRedirects = false
+                connection.connectTimeout = 5000
+                connection.readTimeout = 5000
+                connection.setRequestProperty("User-Agent", "Mozilla/5.0")
+                val code = connection.responseCode
+
+                if (code in 300..399) {
+                    val location = connection.getHeaderField("Location")
+                    connection.disconnect()
+                    if (location != null) { currentUrl = location; continue }
+                    else return null
+                }
+
+                if (code == 200) {
+                    val bitmap = android.graphics.BitmapFactory.decodeStream(connection.inputStream)
+                    connection.disconnect()
+                    return bitmap
+                }
+
+                connection.disconnect()
+                return null
+            } catch (e: Exception) {
+                return null
+            }
+        }
+        return null
+    }
+
+    /** Fetch page title from a URL */
+    suspend fun fetchPageTitle(url: String): String? {
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                Timber.d("Fetching title for: $url")
+                val connection = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+                connection.instanceFollowRedirects = true
+                connection.connectTimeout = 10000
+                connection.readTimeout = 10000
+                connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36")
+                val responseCode = connection.responseCode
+                Timber.d("Title fetch response code: $responseCode")
+                if (responseCode != 200) {
+                    connection.disconnect()
+                    return@withContext null
+                }
+                val html = connection.inputStream.bufferedReader().use { it.readText().take(15000) }
+                connection.disconnect()
+                val match = Regex("<title[^>]*>([^<]+)</title>", RegexOption.IGNORE_CASE).find(html)
+                val title = match?.groupValues?.get(1)?.trim()
+                Timber.d("Fetched title: $title")
+                title
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to fetch title for $url")
+                null
+            }
+        }
     }
 
     // === Drag & drop ===
@@ -682,6 +895,15 @@ class LauncherViewModel @Inject constructor(
     fun removeFromScreen(pageIndex: Int, position: Int) {
         val pages = _uiState.value.pages.toMutableList()
         val page = pages.getOrNull(pageIndex) ?: return
+        val item = page.items.find { it.position == position }
+
+        // Remove from standalone tracking
+        if (item is ScreenItem.AppShortcut) {
+            standaloneItems.removeAll { it.packageName == item.appInfo.packageName }
+        } else if (item is ScreenItem.WebShortcut) {
+            standaloneItems.removeAll { it.webUrl == item.url }
+        }
+
         val filtered = page.items.filter { it.position != position }
         pages[pageIndex] = page.copy(items = compactPositions(filtered))
         _uiState.value = _uiState.value.copy(pages = cleanupEmptyPages(pages))
@@ -692,6 +914,7 @@ class LauncherViewModel @Inject constructor(
     private fun setItemPosition(item: ScreenItem, newPos: Int): ScreenItem = when (item) {
         is ScreenItem.AppShortcut -> item.copy(position = newPos)
         is ScreenItem.Folder -> item.copy(position = newPos)
+        is ScreenItem.WebShortcut -> item.copy(position = newPos)
     }
 
     /** Re-number positions 0..n-1 preserving order */

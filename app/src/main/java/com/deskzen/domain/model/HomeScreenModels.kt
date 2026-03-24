@@ -1,5 +1,7 @@
 package com.deskzen.domain.model
 
+import android.graphics.Bitmap
+
 data class ScreenPage(
     val pageIndex: Int,
     val items: List<ScreenItem>
@@ -19,5 +21,12 @@ sealed interface ScreenItem {
         val name: String,
         val apps: List<AppInfo>,
         val color: Long? = null
+    ) : ScreenItem
+
+    data class WebShortcut(
+        override val position: Int,
+        val url: String,
+        val label: String,
+        val favicon: Bitmap? = null
     ) : ScreenItem
 }
