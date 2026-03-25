@@ -91,6 +91,7 @@ import androidx.compose.ui.unit.IntOffset
 import com.deskzen.ui.organize.CellBounds
 import com.deskzen.ui.organize.DragState
 import com.deskzen.ui.organize.DropTarget
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -189,7 +190,8 @@ fun LauncherScreen(
             onInsertItem = viewModel::insertItem,
             onDropIntoFolder = viewModel::dropIntoFolder,
             onCreateFolderFromDrop = viewModel::createFolderFromDrop,
-            onRemoveFromScreen = viewModel::removeFromScreen
+            onRemoveFromScreen = viewModel::removeFromScreen,
+            scrollToFirstPage = viewModel.scrollToFirstPage
         )
 
         // App drawer overlay
@@ -342,7 +344,8 @@ fun HomeScreenContent(
     onInsertItem: (Int, Int, Int, Int) -> Unit = { _, _, _, _ -> },
     onDropIntoFolder: (Int, Int, String) -> Unit = { _, _, _ -> },
     onCreateFolderFromDrop: (Int, Int, String) -> Unit = { _, _, _ -> },
-    onRemoveFromScreen: (Int, Int) -> Unit = { _, _ -> }
+    onRemoveFromScreen: (Int, Int) -> Unit = { _, _ -> },
+    scrollToFirstPage: Flow<Unit>? = null
 ) {
     val pagerState = rememberPagerState(pageCount = { pages.size.coerceAtLeast(1) })
     val statusBarPadding = WindowInsets.statusBars.asPaddingValues()
@@ -360,6 +363,10 @@ fun HomeScreenContent(
 
     LaunchedEffect(pagerState) {
         snapshotFlow { pagerState.currentPage }.collect { onPageChanged(it) }
+    }
+
+    LaunchedEffect(scrollToFirstPage) {
+        scrollToFirstPage?.collect { pagerState.animateScrollToPage(0) }
     }
 
     // Screen width for edge detection

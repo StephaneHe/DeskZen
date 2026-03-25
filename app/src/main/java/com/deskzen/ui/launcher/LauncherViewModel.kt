@@ -15,8 +15,11 @@ import com.deskzen.domain.model.ThemeSuggestion
 import com.deskzen.ui.theme.DeskZenDimens
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import timber.log.Timber
@@ -43,6 +46,11 @@ class LauncherViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(LauncherUiState())
     val uiState: StateFlow<LauncherUiState> = _uiState.asStateFlow()
+
+    private val _scrollToFirstPage = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val scrollToFirstPage: SharedFlow<Unit> = _scrollToFirstPage.asSharedFlow()
+
+    fun onHomeDoubleTap() { _scrollToFirstPage.tryEmit(Unit) }
 
     // Custom folders created by the user
     private val customFolderNames = mutableSetOf<String>()
