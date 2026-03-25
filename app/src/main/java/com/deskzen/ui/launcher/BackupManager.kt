@@ -8,15 +8,28 @@ import timber.log.Timber
 import java.io.BufferedReader
 import java.io.InputStreamReader
 
+data class BackupStandaloneItem(
+    val pageIndex: Int,
+    val position: Int,
+    val packageName: String? = null,
+    val webUrl: String? = null,
+    val webLabel: String? = null
+)
+
 data class BackupData(
     val customFolders: List<String>,
     val manualPlacements: Map<String, String>,
+    val standaloneItems: List<BackupStandaloneItem> = emptyList(),
     val version: Int = 1
 )
 
 object BackupManager {
 
-    fun exportToJson(customFolders: Set<String>, manualPlacements: Map<String, String>): String {
+    fun exportToJson(
+        customFolders: Set<String>,
+        manualPlacements: Map<String, String>,
+        standaloneItems: List<BackupStandaloneItem>
+    ): String {
         val json = JSONObject()
         json.put("version", 1)
         json.put("app", "DeskZen")
@@ -30,6 +43,18 @@ object BackupManager {
             placementsObj.put(pkg, folder)
         }
         json.put("manualPlacements", placementsObj)
+
+        val standaloneArray = JSONArray()
+        standaloneItems.forEach { item ->
+            val obj = JSONObject()
+            obj.put("pageIndex", item.pageIndex)
+            obj.put("position", item.position)
+            item.packageName?.let { obj.put("packageName", it) }
+            item.webUrl?.let { obj.put("webUrl", it) }
+            item.webLabel?.let { obj.put("webLabel", it) }
+            standaloneArray.put(obj)
+        }
+        json.put("standaloneItems", standaloneArray)
 
         return json.toString(2)
     }
@@ -55,9 +80,25 @@ object BackupManager {
                 }
             }
 
+            val standalone = mutableListOf<BackupStandaloneItem>()
+            val standaloneArray = json.optJSONArray("standaloneItems")
+            if (standaloneArray != null) {
+                for (i in 0 until standaloneArray.length()) {
+                    val obj = standaloneArray.getJSONObject(i)
+                    standalone.add(BackupStandaloneItem(
+                        pageIndex = obj.getInt("pageIndex"),
+                        position = obj.getInt("position"),
+                        packageName = obj.optString("packageName").ifEmpty { null },
+                        webUrl = obj.optString("webUrl").ifEmpty { null },
+                        webLabel = obj.optString("webLabel").ifEmpty { null }
+                    ))
+                }
+            }
+
             BackupData(
                 customFolders = folders,
                 manualPlacements = placements,
+                standaloneItems = standalone,
                 version = version
             )
         } catch (e: Exception) {

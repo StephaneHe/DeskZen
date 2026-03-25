@@ -1055,7 +1055,16 @@ class LauncherViewModel @Inject constructor(
     // === Backup/Restore ===
 
     fun exportBackup(): String {
-        return BackupManager.exportToJson(customFolderNames, manualPlacements)
+        val backupStandalone = standaloneItems.map { item ->
+            BackupStandaloneItem(
+                pageIndex = item.pageIndex,
+                position = item.position,
+                packageName = item.packageName,
+                webUrl = item.webUrl,
+                webLabel = item.webLabel
+            )
+        }
+        return BackupManager.exportToJson(customFolderNames, manualPlacements, backupStandalone)
     }
 
     fun importBackup(backupData: BackupData) {
@@ -1063,7 +1072,46 @@ class LauncherViewModel @Inject constructor(
         customFolderNames.addAll(backupData.customFolders)
         manualPlacements.clear()
         manualPlacements.putAll(backupData.manualPlacements)
+        standaloneItems.clear()
+        standaloneItems.addAll(backupData.standaloneItems.map { item ->
+            StandaloneItem(
+                pageIndex = item.pageIndex,
+                position = item.position,
+                packageName = item.packageName,
+                webUrl = item.webUrl,
+                webLabel = item.webLabel,
+                webFavicon = null  // favicon re-fetched lazily if needed
+            )
+        })
         reDispatchWithIA()
-        Timber.d("Imported backup: ${backupData.customFolders.size} folders, ${backupData.manualPlacements.size} placements")
+        refreshWebShortcutFavicons()
+        Timber.d("Imported backup: ${backupData.customFolders.size} folders, ${backupData.manualPlacements.size} placements, ${backupData.standaloneItems.size} standalone items")
+    }
+
+    /** Re-fetch favicons for all web shortcuts that have none (e.g. after a restore) */
+    private fun refreshWebShortcutFavicons() {
+        val itemsToRefresh = standaloneItems.filter { it.webUrl != null && it.webFavicon == null }
+        for (item in itemsToRefresh) {
+            viewModelScope.launch {
+                val favicon = fetchFavicon(item.webUrl!!) ?: return@launch
+                val idx = standaloneItems.indexOf(item)
+                if (idx < 0) return@launch
+                standaloneItems[idx] = item.copy(webFavicon = favicon)
+                // Patch the favicon directly in the pages state without a full rebuild
+                val pages = _uiState.value.pages.toMutableList()
+                for (pi in pages.indices) {
+                    val page = pages[pi]
+                    val updated = page.items.map { screenItem ->
+                        if (screenItem is ScreenItem.WebShortcut &&
+                            screenItem.url == item.webUrl &&
+                            screenItem.position == item.position
+                        ) screenItem.copy(favicon = favicon)
+                        else screenItem
+                    }
+                    if (updated !== page.items) pages[pi] = page.copy(items = updated)
+                }
+                _uiState.value = _uiState.value.copy(pages = pages)
+            }
+        }
     }
 }
