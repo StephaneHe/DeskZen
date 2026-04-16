@@ -4,7 +4,6 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import com.deskzen.ui.launcher.LauncherScreen
 import com.deskzen.ui.launcher.LauncherViewModel
@@ -19,7 +18,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        // Match system bars to DeskZen dark background (SoloDeepBlack = 0xFF080B1A)
+        @Suppress("DEPRECATION")
+        window.statusBarColor = 0xFF050810.toInt()
+        @Suppress("DEPRECATION")
+        window.navigationBarColor = 0xFF050810.toInt()
         setContent {
             DeskZenTheme {
                 LauncherScreen()

@@ -6,6 +6,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -117,6 +119,7 @@ fun LauncherScreen(
     viewModel: LauncherViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val badgeCounts by viewModel.badgeCounts.collectAsState()
     val context = LocalContext.current
     var appToMove by remember { mutableStateOf<String?>(null) }
     // Web shortcut dialog state: Pair(pageIndex, position) or null
@@ -176,6 +179,7 @@ fun LauncherScreen(
         HomeScreenContent(
             pages = uiState.pages,
             currentPageIndex = uiState.currentPage,
+            badgeCounts = badgeCounts,
             onPageChanged = viewModel::onPageChanged,
             onAppClick = viewModel::launchApp,
             onAppLongClick = { pkg -> appToMove = pkg },
@@ -330,6 +334,7 @@ fun LauncherScreen(
 fun HomeScreenContent(
     pages: List<ScreenPage>,
     currentPageIndex: Int = 0,
+    badgeCounts: Map<String, Int> = emptyMap(),
     onPageChanged: (Int) -> Unit,
     onAppClick: (String) -> Unit,
     onAppLongClick: (String) -> Unit,
@@ -554,6 +559,7 @@ fun HomeScreenContent(
                 HomePageGrid(
                     page = pages[pageIndex],
                     pageIndex = pageIndex,
+                    badgeCounts = badgeCounts,
                     onAppClick = onAppClick,
                     onAppLongClick = onAppLongClick,
                     onWebShortcutClick = onWebShortcutClick,
@@ -624,6 +630,7 @@ fun HomeScreenContent(
         if (!dragState.isDragging && dockApps.any { it != null }) {
             DockBar(
                 dockApps = dockApps,
+                badgeCounts = badgeCounts,
                 onAppClick = onDockAppClick,
                 onAppLongClick = onDockAppLongClick
             )
@@ -706,6 +713,7 @@ fun DragOverlay(dragState: DragState) {
 fun HomePageGrid(
     page: ScreenPage,
     pageIndex: Int = 0,
+    badgeCounts: Map<String, Int> = emptyMap(),
     onAppClick: (String) -> Unit,
     onAppLongClick: (String) -> Unit,
     onWebShortcutClick: (String) -> Unit = {},
@@ -875,7 +883,8 @@ fun HomePageGrid(
                                 AppIcon(
                                     icon = item.appInfo.icon,
                                     label = item.appInfo.label,
-                                    size = DeskZenDimens.homeIconSize
+                                    size = DeskZenDimens.homeIconSize,
+                                    notificationCount = badgeCounts[item.appInfo.packageName] ?: 0
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
@@ -888,12 +897,15 @@ fun HomePageGrid(
                             }
                         }
                         is ScreenItem.Folder -> {
+                            val folderBadgeCount = item.apps.sumOf { app ->
+                                badgeCounts[app.packageName] ?: 0
+                            }
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 modifier = Modifier
                                     .padding(vertical = DeskZenDimens.homeIconPadding)
                             ) {
-                                FolderIcon(folder = item)
+                                FolderIcon(folder = item, notificationCount = folderBadgeCount)
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
                                     text = item.name,
@@ -906,6 +918,7 @@ fun HomePageGrid(
                             if (folderExpanded) {
                                 FolderSheet(
                                     folder = item,
+                                    badgeCounts = badgeCounts,
                                     onAppClick = { pkg ->
                                         expandedFolderPos = -1
                                         onAppClick(pkg)
@@ -945,7 +958,8 @@ fun HomePageGrid(
 }
 
 @Composable
-fun FolderIcon(folder: ScreenItem.Folder) {
+fun FolderIcon(folder: ScreenItem.Folder, notificationCount: Int = 0) {
+    Box {
     Card(
         modifier = Modifier.size(DeskZenDimens.folderIconSize),
         shape = RoundedCornerShape(DeskZenDimens.folderCornerRadius),
@@ -975,12 +989,36 @@ fun FolderIcon(folder: ScreenItem.Folder) {
             }
         }
     }
+    // Notification badge on folder
+    if (notificationCount > 0) {
+        val countText = if (notificationCount > 99) "99+" else notificationCount.toString()
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .widthIn(min = 18.dp)
+                .background(Color(0xFFE53935), CircleShape)
+                .padding(horizontal = 4.dp, vertical = 1.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = countText,
+                style = TextStyle(
+                    color = Color.White,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+            )
+        }
+    }
+    } // end Box
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun FolderSheet(
     folder: ScreenItem.Folder,
+    badgeCounts: Map<String, Int> = emptyMap(),
     onAppClick: (String) -> Unit,
     onMoveApp: ((String) -> Unit)? = null,
     isAppLocked: (String) -> Boolean = { false },
@@ -1028,7 +1066,8 @@ fun FolderSheet(
                             AppIcon(
                                 icon = app.icon,
                                 label = app.label,
-                                size = DeskZenDimens.homeIconSize
+                                size = DeskZenDimens.homeIconSize,
+                                notificationCount = badgeCounts[app.packageName] ?: 0
                             )
                             if (locked) {
                                 Text(
@@ -1363,6 +1402,7 @@ fun AddWebShortcutDialog(
 @Composable
 fun DockBar(
     dockApps: List<AppInfo?>,
+    badgeCounts: Map<String, Int> = emptyMap(),
     onAppClick: (String) -> Unit,
     onAppLongClick: (Int) -> Unit
 ) {
@@ -1391,7 +1431,8 @@ fun DockBar(
                     AppIcon(
                         icon = app.icon,
                         label = app.label,
-                        size = DeskZenDimens.dockIconSize
+                        size = DeskZenDimens.dockIconSize,
+                        notificationCount = badgeCounts[app.packageName] ?: 0
                     )
                     Text(
                         text = app.label,

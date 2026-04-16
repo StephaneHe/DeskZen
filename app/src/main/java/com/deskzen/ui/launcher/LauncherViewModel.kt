@@ -8,6 +8,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.deskzen.ai.HeuristicCategorizer
 import com.deskzen.data.repository.AppRepository
+import com.deskzen.data.repository.NotificationRepository
 import com.deskzen.domain.model.AppInfo
 import com.deskzen.domain.model.ScreenItem
 import com.deskzen.domain.model.ScreenPage
@@ -46,6 +47,9 @@ class LauncherViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(LauncherUiState())
     val uiState: StateFlow<LauncherUiState> = _uiState.asStateFlow()
+
+    /** Notification badge counts, observed from NotificationRepository */
+    val badgeCounts: StateFlow<Map<String, Int>> = NotificationRepository.badgeCounts
 
     private val _scrollToFirstPage = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val scrollToFirstPage: SharedFlow<Unit> = _scrollToFirstPage.asSharedFlow()
