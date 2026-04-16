@@ -10,6 +10,8 @@ import com.deskzen.ai.HeuristicCategorizer
 import com.deskzen.data.repository.AppRepository
 import com.deskzen.data.repository.NotificationRepository
 import com.deskzen.domain.model.AppInfo
+import com.deskzen.domain.model.ContactAction
+import com.deskzen.domain.model.QuickContact
 import com.deskzen.domain.model.ScreenItem
 import com.deskzen.domain.model.ScreenPage
 import com.deskzen.domain.model.ThemeSuggestion
@@ -35,7 +37,8 @@ data class LauncherUiState(
     val suggestions: List<ThemeSuggestion> = emptyList(),
     val showFolderManager: Boolean = false,
     val dockApps: List<AppInfo?> = listOf(null, null, null, null, null),
-    val isFirstLaunch: Boolean = true
+    val isFirstLaunch: Boolean = true,
+    val quickContacts: List<QuickContact?> = List(8) { null }
 )
 
 @HiltViewModel
@@ -1064,6 +1067,104 @@ class LauncherViewModel @Inject constructor(
 
     fun getDockPositions(): List<Int> = (0..4).toList()
 
+    // === Quick Contacts (landscape mode) ===
+
+    init {
+        loadQuickContacts()
+    }
+
+    private fun loadQuickContacts() {
+        val prefs = context.getSharedPreferences("deskzen_contacts", Context.MODE_PRIVATE)
+        val contacts = (0 until 8).map { i ->
+            val json = prefs.getString("contact_$i", null) ?: return@map null
+            try {
+                val obj = org.json.JSONObject(json)
+                QuickContact(
+                    position = i,
+                    contactName = obj.getString("name"),
+                    phoneNumber = obj.getString("phone"),
+                    photoUri = obj.optString("photoUri", null),
+                    action = ContactAction.valueOf(obj.optString("action", "CALL_PHONE"))
+                )
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to load quick contact $i")
+                null
+            }
+        }
+        _uiState.value = _uiState.value.copy(quickContacts = contacts)
+    }
+
+    private fun saveQuickContacts() {
+        val prefs = context.getSharedPreferences("deskzen_contacts", Context.MODE_PRIVATE)
+        val editor = prefs.edit()
+        val contacts = _uiState.value.quickContacts
+        for (i in 0 until 8) {
+            val contact = contacts.getOrNull(i)
+            if (contact != null) {
+                val obj = org.json.JSONObject().apply {
+                    put("name", contact.contactName)
+                    put("phone", contact.phoneNumber)
+                    put("photoUri", contact.photoUri)
+                    put("action", contact.action.name)
+                }
+                editor.putString("contact_$i", obj.toString())
+            } else {
+                editor.remove("contact_$i")
+            }
+        }
+        editor.apply()
+    }
+
+    fun setQuickContact(position: Int, contact: QuickContact) {
+        if (position !in 0..7) return
+        val contacts = _uiState.value.quickContacts.toMutableList()
+        contacts[position] = contact.copy(position = position)
+        _uiState.value = _uiState.value.copy(quickContacts = contacts)
+        saveQuickContacts()
+    }
+
+    fun removeQuickContact(position: Int) {
+        if (position !in 0..7) return
+        val contacts = _uiState.value.quickContacts.toMutableList()
+        contacts[position] = null
+        _uiState.value = _uiState.value.copy(quickContacts = contacts)
+        saveQuickContacts()
+    }
+
+    fun executeContactAction(contact: QuickContact) {
+        val phone = contact.phoneNumber.replace(" ", "").replace("-", "")
+        val intent = when (contact.action) {
+            ContactAction.CALL_PHONE -> {
+                Intent(Intent.ACTION_CALL, Uri.parse("tel:$phone")).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            }
+            ContactAction.WHATSAPP_CALL -> {
+                // WhatsApp VoIP call via wa.me link
+                Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/${phone.removePrefix("+")}")).apply {
+                    setPackage("com.whatsapp")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            }
+            ContactAction.WHATSAPP_MESSAGE -> {
+                Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/${phone.removePrefix("+")}")).apply {
+                    setPackage("com.whatsapp")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            }
+            ContactAction.SMS -> {
+                Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:$phone")).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            }
+        }
+        try {
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to execute contact action: ${contact.action}")
+        }
+    }
+
     // === Backup/Restore ===
 
     fun exportBackup(): String {
@@ -1076,7 +1177,17 @@ class LauncherViewModel @Inject constructor(
                 webLabel = item.webLabel
             )
         }
-        return BackupManager.exportToJson(customFolderNames, manualPlacements, backupStandalone)
+        val backupContacts = _uiState.value.quickContacts.map { contact ->
+            contact?.let {
+                BackupQuickContact(
+                    position = it.position,
+                    contactName = it.contactName,
+                    phoneNumber = it.phoneNumber,
+                    action = it.action.name
+                )
+            }
+        }
+        return BackupManager.exportToJson(customFolderNames, manualPlacements, backupStandalone, backupContacts)
     }
 
     fun importBackup(backupData: BackupData) {
@@ -1095,9 +1206,23 @@ class LauncherViewModel @Inject constructor(
                 webFavicon = null  // favicon re-fetched lazily if needed
             )
         })
+        // Restore quick contacts
+        val restoredContacts = backupData.quickContacts.mapIndexed { idx, backup ->
+            backup?.let {
+                QuickContact(
+                    position = idx,
+                    contactName = it.contactName,
+                    phoneNumber = it.phoneNumber,
+                    action = try { ContactAction.valueOf(it.action) } catch (_: Exception) { ContactAction.CALL_PHONE }
+                )
+            }
+        }
+        _uiState.value = _uiState.value.copy(quickContacts = restoredContacts)
+        saveQuickContacts()
+
         reDispatchWithIA()
         refreshWebShortcutFavicons()
-        Timber.d("Imported backup: ${backupData.customFolders.size} folders, ${backupData.manualPlacements.size} placements, ${backupData.standaloneItems.size} standalone items")
+        Timber.d("Imported backup: ${backupData.customFolders.size} folders, ${backupData.manualPlacements.size} placements, ${backupData.standaloneItems.size} standalone items, ${restoredContacts.count { it != null }} quick contacts")
     }
 
     /** Re-fetch favicons for all web shortcuts that have none (e.g. after a restore) */

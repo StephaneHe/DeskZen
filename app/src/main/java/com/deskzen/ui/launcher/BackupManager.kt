@@ -16,10 +16,18 @@ data class BackupStandaloneItem(
     val webLabel: String? = null
 )
 
+data class BackupQuickContact(
+    val position: Int,
+    val contactName: String,
+    val phoneNumber: String,
+    val action: String
+)
+
 data class BackupData(
     val customFolders: List<String>,
     val manualPlacements: Map<String, String>,
     val standaloneItems: List<BackupStandaloneItem> = emptyList(),
+    val quickContacts: List<BackupQuickContact?> = List(8) { null },
     val version: Int = 1
 )
 
@@ -28,7 +36,8 @@ object BackupManager {
     fun exportToJson(
         customFolders: Set<String>,
         manualPlacements: Map<String, String>,
-        standaloneItems: List<BackupStandaloneItem>
+        standaloneItems: List<BackupStandaloneItem>,
+        quickContacts: List<BackupQuickContact?> = emptyList()
     ): String {
         val json = JSONObject()
         json.put("version", 1)
@@ -55,6 +64,19 @@ object BackupManager {
             standaloneArray.put(obj)
         }
         json.put("standaloneItems", standaloneArray)
+
+        val contactsArray = JSONArray()
+        quickContacts.forEach { contact ->
+            if (contact != null) {
+                val obj = JSONObject()
+                obj.put("position", contact.position)
+                obj.put("name", contact.contactName)
+                obj.put("phone", contact.phoneNumber)
+                obj.put("action", contact.action)
+                contactsArray.put(obj)
+            }
+        }
+        json.put("quickContacts", contactsArray)
 
         return json.toString(2)
     }
@@ -95,10 +117,28 @@ object BackupManager {
                 }
             }
 
+            val quickContacts = MutableList<BackupQuickContact?>(8) { null }
+            val contactsArray = json.optJSONArray("quickContacts")
+            if (contactsArray != null) {
+                for (i in 0 until contactsArray.length()) {
+                    val obj = contactsArray.getJSONObject(i)
+                    val pos = obj.getInt("position")
+                    if (pos in 0..7) {
+                        quickContacts[pos] = BackupQuickContact(
+                            position = pos,
+                            contactName = obj.getString("name"),
+                            phoneNumber = obj.getString("phone"),
+                            action = obj.optString("action", "CALL_PHONE")
+                        )
+                    }
+                }
+            }
+
             BackupData(
                 customFolders = folders,
                 manualPlacements = placements,
                 standaloneItems = standalone,
+                quickContacts = quickContacts,
                 version = version
             )
         } catch (e: Exception) {

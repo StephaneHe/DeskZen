@@ -90,6 +90,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.platform.LocalConfiguration
+import com.deskzen.ui.contacts.QuickContactsScreen
 import com.deskzen.ui.organize.CellBounds
 import com.deskzen.ui.organize.DragState
 import com.deskzen.ui.organize.DropTarget
@@ -121,9 +123,17 @@ fun LauncherScreen(
     val uiState by viewModel.uiState.collectAsState()
     val badgeCounts by viewModel.badgeCounts.collectAsState()
     val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     var appToMove by remember { mutableStateOf<String?>(null) }
     // Web shortcut dialog state: Pair(pageIndex, position) or null
     var webShortcutTarget by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+
+    // Landscape mode: show quick contacts screen
+    if (isLandscape) {
+        QuickContactsScreen(viewModel = viewModel)
+        return
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         // Solo Leveling wallpaper
