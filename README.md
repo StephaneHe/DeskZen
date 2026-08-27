@@ -1,80 +1,85 @@
 # DeskZen
 
-Un launcher Android intelligent qui organise automatiquement tes applications grâce à un moteur de catégorisation heuristique, avec une interface personnalisable inspirée de l'univers *Solo Leveling*.
+A smart Android launcher that automatically organizes your apps into themed
+folders with a local heuristic categorizer, wrapped in a customizable dark UI
+inspired by *Solo Leveling*.
+
+Kotlin · Jetpack Compose · MVVM · Hilt.
 
 ---
 
-## Fonctionnalités
+## Features
 
-### Écran d'accueil
-- **Pages multiples** – les apps sont réparties sur plusieurs pages (20 icônes max par page) navigables par swipe
-- **Dossiers intelligents** – création automatique de dossiers thématiques (Social, Finance, Jeux, Musique…) via l'IA heuristique
-- **Dossiers personnalisés** – crée, renomme ou supprime tes propres dossiers
-- **Drag & drop** – déplace des apps ou crée un dossier en glissant une icône sur une autre
-- **Raccourcis web** – ajoute des liens web à l'écran d'accueil avec récupération automatique du favicon
-- **Appui long sur zone vide** – ajoute un raccourci vers une URL directement depuis l'écran d'accueil
+### Home screen
+- **Paginated grid** – apps are spread across swipeable pages (up to 20 icons per page).
+- **Smart folders** – themed folders (Social, Finance, Games, Music…) are proposed
+  automatically by a local heuristic categorizer — no network, no cloud.
+- **Custom folders** – create, rename and delete your own folders.
+- **Drag & drop** – move icons around, or drop one icon onto another to create a folder.
+- **Web shortcuts** – add links to the home screen; the favicon and page title are
+  fetched automatically. `http://` and `https://` are both supported.
+- **Long-press on an empty cell** – add a web shortcut or change the wallpaper.
+- **Double-tap Home** – jump back to the first page.
 
-### Barre de toggles rapides
-Accès direct depuis l'écran d'accueil aux commandes système :
-- Wi-Fi, Bluetooth, VPN, NFC, Lampe de poche
+### App drawer
+- Swipe up to open a full drawer of installed apps with real-time search.
 
-### Tiroir d'applications
-- Liste complète des apps installées avec recherche en temps réel
-- Tri et filtrage par catégorie
+### Quick toggles bar
+- One-tap access from the home screen to Wi-Fi, Bluetooth, VPN (Tailscale),
+  NFC and the flashlight.
 
-### Suggestions IA
-- Recommandations de rangement par thème avec score de confiance
-- Détection multi-niveaux : catégorie Android → pattern de package → mots-clés du nom de l'app
+### Landscape quick contacts
+- In landscape, a 4×2 grid of speed-dial contacts with phone call, WhatsApp
+  call/message and SMS actions, each with a contact photo you can crop.
 
-### Sauvegarde / Restauration
-- Export/import du layout complet au format JSON
-- Préserve : dossiers personnalisés, placements manuels, apps standalone et raccourcis web
-- Les favicons des raccourcis web sont re-téléchargés automatiquement après une restauration
+### Notification badges
+- Unread-count badges on app icons via a `NotificationListenerService`.
+
+### Backup / restore
+- Export and import the full layout as a JSON file (custom folders, manual
+  placements, standalone apps, web shortcuts, and contact photos).
 
 ---
 
-## Stack technique
+## Tech stack
 
-| Couche | Technologies |
-|--------|-------------|
-| Langage | Kotlin 2.1.0 |
-| UI | Jetpack Compose (BOM 2025.01.00) · Material Design 3 |
-| Architecture | MVVM · Repository pattern · StateFlow |
-| Injection de dépendances | Hilt 2.53 |
-| Base de données | Room 2.6.1 |
-| Sérialisation | Kotlin Serialization 1.7.3 |
-| Navigation | Navigation Compose 2.8.5 (type-safe) |
-| Build | Gradle 8.7.3 · KSP · Java 17 |
-| Logging | Timber 5.0.1 |
-| Tests | JUnit 4 · MockK 1.13.13 · Coroutines Test |
+| Layer | Technology |
+|-------|-----------|
+| Language | Kotlin 2.1.0 |
+| UI | Jetpack Compose (BOM 2025.01.00) · Material 3 |
+| Architecture | MVVM · `StateFlow` |
+| Dependency injection | Hilt 2.53 |
+| Persistence | `SharedPreferences` + JSON files (no database) |
+| Categorization | Local heuristic engine (no ML runtime, no network) |
+| Logging | Timber 5.0.1 (debug builds only) |
+| Build | AGP 8.7.3 · Gradle 8.11.1 · KSP · JDK 17 |
+| Tests | JUnit 4 · MockK · Coroutines Test |
 
 ---
 
 ## Architecture
 
+`MainActivity` hosts a single Compose screen, `LauncherScreen`, driven by a
+central `LauncherViewModel` that exposes a `StateFlow<LauncherUiState>`.
+
 ```
 com.deskzen/
+├── MainActivity.kt            # Single-activity launcher entry point
 ├── ui/
-│   ├── launcher/          # Écran principal, ViewModel, BackupManager, QuickToggles
-│   ├── apps/              # Tiroir d'applications
-│   ├── suggestions/       # Écran de suggestions IA
-│   ├── components/        # Composants réutilisables (AppIcon, PageIndicator…)
-│   └── theme/             # Thème Solo Leveling (dark, bleus électriques)
-├── domain/
-│   ├── model/             # AppInfo, ScreenItem (sealed), ThemeSuggestion…
-│   └── usecase/           # ManageShortcutUseCase
-├── data/
-│   ├── repository/        # AppRepository, ScreenRepository (PackageManager + Room)
-│   └── local/             # Room DB – entités ScreenPage, ScreenItem, Profile, FolderApp
-├── ai/
-│   ├── HeuristicCategorizer.kt   # Moteur de catégorisation multi-niveaux
-│   └── AppCategorizerFacade.kt
-├── di/                    # Modules Hilt (App, Database, UseCase)
-├── navigation/            # DeskZenNavHost – 3 onglets
-└── MainActivity.kt
+│   ├── launcher/              # LauncherScreen + LauncherViewModel, app drawer,
+│   │                          # dock, folder manager, quick toggles, backup
+│   ├── contacts/              # Landscape quick-contacts grid + config dialog
+│   ├── organize/              # Drag & drop state (DragState, DropTarget)
+│   ├── components/            # Reusable composables (AppIcon, PageIndicator)
+│   └── theme/                 # Solo Leveling dark theme
+├── domain/model/             # AppInfo, ScreenItem (sealed), QuickContact, ThemeSuggestion
+├── data/repository/          # AppRepository (PackageManager), NotificationRepository
+├── ai/                       # HeuristicCategorizer (multi-level app categorization)
+├── service/                  # NotificationBadgeService (NotificationListenerService)
+└── di/                       # Hilt module
 ```
 
-### Modèle de données principal
+### Core data model
 
 ```kotlin
 sealed interface ScreenItem {
@@ -84,43 +89,61 @@ sealed interface ScreenItem {
 }
 ```
 
+### Categorization
+
+`HeuristicCategorizer` classifies apps with no ML runtime and no network, in
+three passes: Android launcher category → package-name patterns → label keywords.
+
+### Persistence
+
+State is stored in `SharedPreferences` (`deskzen_prefs`, `deskzen_dock`,
+`deskzen_contacts`) plus JSON/asset files in the app's private storage. User
+backups are a single JSON document written to `filesDir`.
+
 ---
 
-## Installation
+## Build & install
 
-### Prérequis
-- Android Studio Hedgehog ou supérieur
-- JDK 17 (ex : Microsoft Build of OpenJDK 17)
-- Android SDK 35 · minSdk 26
+### Requirements
+- Android Studio (Hedgehog or newer)
+- JDK 17 (e.g. Microsoft Build of OpenJDK 17)
+- Android SDK 35 · **minSdk 28**
 
-### Build & install
+Create a `local.properties` at the repo root pointing at your SDK (this file is
+gitignored and must never be committed):
+
+```
+sdk.dir=/absolute/path/to/Android/Sdk
+```
+
+### Build
 
 ```bash
 # Debug
 ./gradlew assembleDebug
 adb install app/build/outputs/apk/debug/app-debug.apk
 
-# Release
+# Release (R8 minify + resource shrinking)
 ./gradlew assembleRelease
 ```
 
-### Définir comme launcher par défaut
-1. Installer l'APK
-2. Appuyer sur le bouton Home
-3. Sélectionner **DeskZen** → *Toujours*
+### Set as the default launcher
+1. Install the APK.
+2. Press the Home button.
+3. Choose **DeskZen** → *Always*.
 
 ---
 
-## Thème
+## Theme
 
-DeskZen utilise un thème sombre personnalisé inspiré de l'anime *Solo Leveling* :
-- Fond : noir profond `#0A0A0F`
-- Accent principal : bleu électrique `#4FC3F7`
-- Accent secondaire : violet `#9C27B0` / cyan `#00BCD4`
-- Typographie : Material Design 3 avec hiérarchie adaptée aux petits écrans
+A custom dark theme inspired by the *Solo Leveling* anime:
+- Background: deep black `#0A0A0F`
+- Primary accent: electric blue `#4FC3F7`
+- Secondary accents: purple `#9C27B0` / cyan `#00BCD4`
+- Material 3 typography tuned for small screens.
 
 ---
 
-## Licence
+## License
 
-Projet privé — tous droits réservés.
+Released under the [MIT License](LICENSE).
