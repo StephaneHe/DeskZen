@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Cleartext (http://) traffic is permitted app-wide on purpose: the web
+  shortcuts feature lets the user add arbitrary http:// sites and fetches
+  their favicons/titles. Target domains are user-chosen and unknown at
+  build time, so a closed per-domain allowlist is not possible here.
+  This replaces the blanket android:usesCleartextTraffic="true" flag with
+  an explicit, documented policy that can be tightened later if needed.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
