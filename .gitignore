@@ -1,20 +1,36 @@
+# Android / Gradle build output
 *.iml
-.gradle
-/local.properties
-/.idea
-.DS_Store
+.gradle/
+.kotlin/
 /build
+/app/build
+/app/release
 /captures
 .externalNativeBuild
 .cxx
+.navigation
+
+# IDE
+/.idea
+.DS_Store
+
+# Local machine config (never commit — leaks SDK path / infra)
 local.properties
+
+# Build artifacts
 *.apk
 *.aab
 *.ap_
 *.dex
 *.class
-*.jar
 *.log
-/app/build
-/app/release
-.navigation
+
+# Jars are ignored EXCEPT the Gradle wrapper, which MUST be versioned
+# so a fresh clone can build with ./gradlew
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+
+# Claude Code — local/personal, never version (leaks device IP/serial, machine paths)
+.claude/settings.local.json
+.claude/worktrees/
+CLAUDE.md
