@@ -2,6 +2,7 @@ package com.deskzen.ui.contacts
 
 import android.graphics.BitmapFactory
 import android.provider.ContactsContract
+import timber.log.Timber
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -122,7 +123,7 @@ fun ContactConfigDialog(
                     pendingPhotoUri = android.net.Uri.fromFile(destFile).toString()
                     step = "photo_preview"
                 } catch (e: Exception) {
-                    android.util.Log.e("DeskZen", "Failed to copy contact photo", e)
+                    Timber.e(e, "Failed to copy contact photo")
                 }
             }
         }
@@ -670,7 +671,7 @@ fun PhotoPreviewDialog(
                         }
                         onConfirmCropped(android.net.Uri.fromFile(destFile).toString())
                     } catch (e: Exception) {
-                        android.util.Log.e("DeskZen", "Failed to crop photo", e)
+                        Timber.e(e, "Failed to crop photo")
                         photoUri?.let { onConfirmCropped(it) }
                     }
                 }

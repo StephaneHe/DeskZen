@@ -704,7 +704,7 @@ class LauncherViewModel @Inject constructor(
         viewModelScope.launch {
             // Fetch favicon in background
             val favicon = fetchFavicon(url)
-            android.util.Log.e("DeskZen", "addWebShortcut: url=$url favicon=${favicon != null} size=${favicon?.width}x${favicon?.height}")
+            Timber.d("addWebShortcut: url=$url favicon=${favicon != null} size=${favicon?.width}x${favicon?.height}")
             val shortcut = ScreenItem.WebShortcut(
                 position = position,
                 url = url,
@@ -758,7 +758,7 @@ class LauncherViewModel @Inject constructor(
                 for (directUrl in directUrls) {
                     val bitmap = fetchBitmapFromUrl(directUrl)
                     if (bitmap != null) {
-                        android.util.Log.d("DeskZen", "Favicon from direct: $directUrl (${bitmap.width}x${bitmap.height})")
+                        Timber.d("Favicon from direct: $directUrl (${bitmap.width}x${bitmap.height})")
                         return@withContext bitmap
                     }
                 }
@@ -767,7 +767,7 @@ class LauncherViewModel @Inject constructor(
                 val googleUrl = "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=$scheme://$authority&size=128"
                 val bitmap = fetchBitmapFromUrl(googleUrl)
                 if (bitmap != null) {
-                    android.util.Log.d("DeskZen", "Favicon from Google: ${bitmap.width}x${bitmap.height}")
+                    Timber.d("Favicon from Google: ${bitmap.width}x${bitmap.height}")
                 }
                 bitmap
             } catch (e: Exception) {
@@ -1260,7 +1260,7 @@ class LauncherViewModel @Inject constructor(
                     }
 
                     if (waDataId != null) {
-                        android.util.Log.d("DeskZen", "WhatsApp call: found dataId=$waDataId")
+                        Timber.d("WhatsApp call: found dataId=$waDataId")
                         Intent(Intent.ACTION_VIEW).apply {
                             setDataAndType(
                                 Uri.parse("content://com.android.contacts/data/$waDataId"),
@@ -1270,7 +1270,7 @@ class LauncherViewModel @Inject constructor(
                             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         }
                     } else {
-                        android.util.Log.d("DeskZen", "WhatsApp voip entry not found for $phoneDigits")
+                        Timber.d("WhatsApp voip entry not found for $phoneDigits")
                         // Fallback: use tel: URI which WhatsApp can intercept
                         Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:$phone")).apply {
                             setPackage("com.whatsapp")
