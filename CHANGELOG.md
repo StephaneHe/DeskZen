@@ -5,6 +5,15 @@ All notable changes to DeskZen will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.2] - 2026-08-27
+
+### Fixed
+- App drawer crash (`IllegalArgumentException: Key "…" was already used`) when a
+  package exposes more than one launcher activity (e.g. the Google app). The drawer
+  `LazyColumn` keyed items by `packageName` alone, which collided. Entries now carry
+  their launcher `activityName` (`AppInfo.activityName`) and the list keys by the full
+  component (`packageName/activityName`), so same-package entries no longer collide.
+
 ## [1.1.1] - 2026-08-27
 
 ### Added

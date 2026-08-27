@@ -1353,7 +1353,10 @@ fun AppDrawer(
                 vertical = DeskZenDimens.spacingSm
             )
         ) {
-            items(apps, key = { it.packageName }) { app ->
+            // Key by the full component (package + launcher activity), not the
+            // package alone: a package can expose several launcher activities
+            // (e.g. the Google app), and duplicate keys crash LazyColumn.
+            items(apps, key = { "${it.packageName}/${it.activityName ?: it.label}" }) { app ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()

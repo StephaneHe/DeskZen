@@ -28,7 +28,9 @@ class AppRepositoryImpl @Inject constructor(
                     val appInfo = resolveInfo.activityInfo.applicationInfo ?: return@mapNotNull null
                     // A launcher is the home screen — show ALL apps with a launcher icon
                     // No filtering. Every app the user can see in the drawer should be here.
-                    mapToAppInfo(pm, appInfo)
+                    // Keep the launcher activity name: a package may expose several,
+                    // and it is what makes each entry unique.
+                    mapToAppInfo(pm, appInfo, resolveInfo.activityInfo.name)
                 }.sortedBy { it.label.lowercase() }
             } catch (e: Exception) {
                 Timber.e(e, "Failed to get installed apps")
@@ -70,7 +72,11 @@ class AppRepositoryImpl @Inject constructor(
         }
     }
 
-    private fun mapToAppInfo(pm: PackageManager, appInfo: ApplicationInfo): AppInfo {
+    private fun mapToAppInfo(
+        pm: PackageManager,
+        appInfo: ApplicationInfo,
+        activityName: String? = null
+    ): AppInfo {
         val isSystem = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
         return AppInfo(
             packageName = appInfo.packageName,
@@ -85,7 +91,8 @@ class AppRepositoryImpl @Inject constructor(
             lastUsedDate = null,
             category = getCategoryName(appInfo.category),
             versionName = getVersionName(pm, appInfo.packageName),
-            isOnHomeScreen = false
+            isOnHomeScreen = false,
+            activityName = activityName
         )
     }
 
