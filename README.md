@@ -6,6 +6,21 @@ inspired by *Solo Leveling*.
 
 Kotlin · Jetpack Compose · MVVM · Hilt.
 
+![DeskZen home screen with auto-organized folders and the quick-toggles bar](docs/screenshots/home.png)
+
+---
+
+## Screenshots
+
+| | |
+|---|---|
+| ![Home screen: auto-organized folders and quick-toggles bar](docs/screenshots/home.png) | ![Open folder detail showing the apps grouped by the local categorizer](docs/screenshots/folders.png) |
+| **Home** — paginated grid, auto-organized folders and the Wi-Fi/Bluetooth/VPN/NFC/flashlight toggles bar. | **Smart folders** — a folder auto-built by the local heuristic categorizer, opened to show its apps. |
+| ![Home screen with web shortcuts showing fetched favicons](docs/screenshots/web-shortcuts.png) | ![Landscape quick-contacts grid with call and WhatsApp actions](docs/screenshots/contacts-landscape.png) |
+| **Web shortcuts** — add any URL; the favicon and page title are fetched automatically. | **Landscape quick contacts** — 4×2 speed-dial grid with per-contact call / WhatsApp / SMS actions. |
+
+> Screenshots captured on an Android emulator with demo apps and fictional contacts.
+
 ---
 
 ## Features
