@@ -5,6 +5,25 @@ All notable changes to DeskZen will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-08-27
+
+### Removed
+- Removed ~2,000 lines of unreachable code. `MainActivity` only ever shows
+  `LauncherScreen`; the entire `DeskZenNavHost` (3-tab Navigation) and everything
+  reachable only through it was dead:
+  - `navigation/DeskZenNavHost`, the `ui/apps`, `ui/homescreen` and `ui/suggestions`
+    screens + view models, `ui/organize/OrganizeViewModel`, `ui/organize/DraggableGrid`,
+    and the unused `ui/components` (ThemeTag, ConfidenceBadge, DeskZenTopBar, EmptyState,
+    LoadingShimmer).
+  - The whole Room persistence layer (`data/local/**`, `ScreenRepository(Impl)`,
+    `app/schemas/`) — real persistence uses SharedPreferences + JSON.
+  - `domain/usecase/ManageShortcutUseCase(Impl)`, `ai/AppCategorizerFacade`,
+    `data/repository/UsageStatsDetector` and `LauncherDetector`,
+    `domain/model/OrganizationProfile`, and the corresponding Hilt modules
+    (`DatabaseModule`, `UseCaseModule`) / bindings.
+  - Dropped now-unused dependencies: Room (runtime/ktx/compiler), Navigation Compose,
+    and Kotlin Serialization (plus its plugin). No user-facing behavior changes.
+
 ## [1.0.5] - 2026-08-27
 
 ### Changed

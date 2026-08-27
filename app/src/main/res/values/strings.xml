@@ -1,11 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">DeskZen</string>
-    <string name="tab_apps">Apps</string>
-    <string name="tab_screen">Écran</string>
-    <string name="tab_suggestions">Suggestions</string>
-    <string name="placeholder_under_construction">En construction</string>
-    <string name="screen_apps_title">Applications</string>
-    <string name="screen_homescreen_title">Mon Écran</string>
-    <string name="screen_suggestions_title">Suggestions IA</string>
 </resources>

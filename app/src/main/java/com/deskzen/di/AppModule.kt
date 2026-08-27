@@ -2,8 +2,6 @@ package com.deskzen.di
 
 import com.deskzen.data.repository.AppRepository
 import com.deskzen.data.repository.AppRepositoryImpl
-import com.deskzen.data.repository.ScreenRepository
-import com.deskzen.data.repository.ScreenRepositoryImpl
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -17,8 +15,4 @@ abstract class AppModule {
     @Binds
     @Singleton
     abstract fun bindAppRepository(impl: AppRepositoryImpl): AppRepository
-
-    @Binds
-    @Singleton
-    abstract fun bindScreenRepository(impl: ScreenRepositoryImpl): ScreenRepository
 }
