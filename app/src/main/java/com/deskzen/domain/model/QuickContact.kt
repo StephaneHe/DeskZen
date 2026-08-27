@@ -5,6 +5,7 @@ data class QuickContact(
     val contactName: String,
     val phoneNumber: String,
     val photoUri: String? = null,
+    val originalPhotoUri: String? = null,  // un-cropped original for re-editing
     val action: ContactAction = ContactAction.CALL_PHONE
 )
 

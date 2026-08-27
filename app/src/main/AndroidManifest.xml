@@ -28,6 +28,7 @@
             android:exported="true"
             android:launchMode="singleTask"
             android:stateNotNeeded="true"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
             android:theme="@style/Theme.DeskZen">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

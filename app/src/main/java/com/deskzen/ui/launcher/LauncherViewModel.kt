@@ -38,7 +38,8 @@ data class LauncherUiState(
     val showFolderManager: Boolean = false,
     val dockApps: List<AppInfo?> = listOf(null, null, null, null, null),
     val isFirstLaunch: Boolean = true,
-    val quickContacts: List<QuickContact?> = List(8) { null }
+    val quickContacts: List<QuickContact?> = List(8) { null },
+    val wallpaperPath: String? = null
 )
 
 @HiltViewModel
@@ -53,6 +54,9 @@ class LauncherViewModel @Inject constructor(
 
     /** Notification badge counts, observed from NotificationRepository */
     val badgeCounts: StateFlow<Map<String, Int>> = NotificationRepository.badgeCounts
+
+    /** Wallpaper bitmap — null means use default gradient */
+    val wallpaperBitmap = MutableStateFlow<android.graphics.Bitmap?>(null)
 
     private val _scrollToFirstPage = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val scrollToFirstPage: SharedFlow<Unit> = _scrollToFirstPage.asSharedFlow()
@@ -78,8 +82,94 @@ class LauncherViewModel @Inject constructor(
         val webFavicon: android.graphics.Bitmap? = null
     )
 
+    private val launcherAppsCallback = object : android.content.pm.LauncherApps.Callback() {
+        override fun onPackageAdded(packageName: String, user: android.os.UserHandle) {
+            viewModelScope.launch {
+                val apps = appRepository.getInstalledApps(includeSystem = true)
+                val suggestions = categorizer.categorize(apps)
+                val pages = buildPages(apps, suggestions)
+                _uiState.value = _uiState.value.copy(allApps = apps, suggestions = suggestions, pages = pages)
+                updateDockState()
+                addAppToHomeScreen(packageName)
+                Timber.d("New app installed: $packageName → added to home screen")
+            }
+        }
+
+        override fun onPackageRemoved(packageName: String, user: android.os.UserHandle) {
+            standaloneItems.removeAll { it.packageName == packageName }
+            loadApps()
+        }
+
+        override fun onPackageChanged(packageName: String, user: android.os.UserHandle) {}
+        override fun onPackagesAvailable(packageNames: Array<String>, user: android.os.UserHandle, replacing: Boolean) {}
+        override fun onPackagesUnavailable(packageNames: Array<String>, user: android.os.UserHandle, replacing: Boolean) {}
+    }
+
     init {
+        restoreBackupIfExists()
         loadApps()
+        loadWallpaper()
+        val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as android.content.pm.LauncherApps
+        launcherApps.registerCallback(launcherAppsCallback)
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as android.content.pm.LauncherApps
+        launcherApps.unregisterCallback(launcherAppsCallback)
+    }
+
+    /** Auto-load backup file on first launch if it exists */
+    private fun restoreBackupIfExists() {
+        try {
+            val file = java.io.File(context.filesDir, "deskzen_backup.json")
+            if (file.exists()) {
+                val data = BackupManager.importFromJson(file.readText())
+                if (data != null) {
+                    customFolderNames.addAll(data.customFolders)
+                    manualPlacements.putAll(data.manualPlacements)
+                    standaloneItems.addAll(data.standaloneItems.map { item ->
+                        StandaloneItem(
+                            pageIndex = item.pageIndex,
+                            position = item.position,
+                            packageName = item.packageName,
+                            webUrl = item.webUrl,
+                            webLabel = item.webLabel
+                        )
+                    })
+                    // Restore quick contacts ONLY if SharedPreferences has none
+                    val contactPrefs = context.getSharedPreferences("deskzen_contacts", Context.MODE_PRIVATE)
+                    val hasExistingContacts = (0 until 8).any { contactPrefs.contains("contact_$it") }
+                    if (!hasExistingContacts) {
+                        val restoredContacts = data.quickContacts.mapIndexed { idx, backup ->
+                            backup?.let {
+                                val restoredPhotoUri = it.photoBase64?.let { b64 ->
+                                    try {
+                                        val bytes = java.util.Base64.getDecoder().decode(b64)
+                                        val file = java.io.File(context.filesDir, "contact_photo_restored_$idx.jpg")
+                                        file.writeBytes(bytes)
+                                        "file://${file.absolutePath}"
+                                    } catch (_: Exception) { null }
+                                }
+                                QuickContact(
+                                    position = idx,
+                                    contactName = it.contactName,
+                                    phoneNumber = it.phoneNumber,
+                                    photoUri = restoredPhotoUri,
+                                    originalPhotoUri = restoredPhotoUri,
+                                    action = try { ContactAction.valueOf(it.action) } catch (_: Exception) { ContactAction.CALL_PHONE }
+                                )
+                            }
+                        }
+                        _uiState.value = _uiState.value.copy(quickContacts = restoredContacts)
+                        saveQuickContacts()
+                    }
+                    Timber.d("Auto-restored backup: ${data.customFolders.size} folders, ${data.manualPlacements.size} placements, ${data.standaloneItems.size} standalone")
+                }
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to auto-restore backup")
+        }
     }
 
     private fun loadApps() {
@@ -1083,7 +1173,8 @@ class LauncherViewModel @Inject constructor(
                     position = i,
                     contactName = obj.getString("name"),
                     phoneNumber = obj.getString("phone"),
-                    photoUri = obj.optString("photoUri", null),
+                    photoUri = obj.optString("photoUri", null)?.takeIf { it.isNotEmpty() },
+                    originalPhotoUri = obj.optString("originalPhotoUri", null)?.takeIf { it.isNotEmpty() },
                     action = ContactAction.valueOf(obj.optString("action", "CALL_PHONE"))
                 )
             } catch (e: Exception) {
@@ -1104,7 +1195,8 @@ class LauncherViewModel @Inject constructor(
                 val obj = org.json.JSONObject().apply {
                     put("name", contact.contactName)
                     put("phone", contact.phoneNumber)
-                    put("photoUri", contact.photoUri)
+                    if (!contact.photoUri.isNullOrEmpty()) put("photoUri", contact.photoUri)
+                    if (!contact.originalPhotoUri.isNullOrEmpty()) put("originalPhotoUri", contact.originalPhotoUri)
                     put("action", contact.action.name)
                 }
                 editor.putString("contact_$i", obj.toString())
@@ -1140,10 +1232,58 @@ class LauncherViewModel @Inject constructor(
                 }
             }
             ContactAction.WHATSAPP_CALL -> {
-                // WhatsApp VoIP call via wa.me link
-                Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/${phone.removePrefix("+")}")).apply {
-                    setPackage("com.whatsapp")
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                // WhatsApp VoIP call — find WhatsApp contact ID via RawContacts
+                try {
+                    // Step 1: Find raw contact with WhatsApp account type and matching phone
+                    val phoneDigits = phone.replace(Regex("[^0-9]"), "")
+                    var waDataId: Long? = null
+
+                    // Search for WhatsApp voip.call entry linked to this phone number
+                    val cursor = context.contentResolver.query(
+                        android.provider.ContactsContract.Data.CONTENT_URI,
+                        arrayOf(android.provider.ContactsContract.Data._ID, android.provider.ContactsContract.Data.DATA1),
+                        "${android.provider.ContactsContract.Data.MIMETYPE} = ?",
+                        arrayOf("vnd.android.cursor.item/vnd.com.whatsapp.voip.call"),
+                        null
+                    )
+                    cursor?.use {
+                        while (it.moveToNext()) {
+                            val id = it.getLong(0)
+                            val data1 = it.getString(1) ?: ""
+                            val data1Digits = data1.replace(Regex("[^0-9]"), "")
+                            // Match last 9+ digits
+                            if (phoneDigits.length >= 9 && data1Digits.endsWith(phoneDigits.takeLast(9))) {
+                                waDataId = id
+                                break
+                            }
+                        }
+                    }
+
+                    if (waDataId != null) {
+                        android.util.Log.d("DeskZen", "WhatsApp call: found dataId=$waDataId")
+                        Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(
+                                Uri.parse("content://com.android.contacts/data/$waDataId"),
+                                "vnd.android.cursor.item/vnd.com.whatsapp.voip.call"
+                            )
+                            setPackage("com.whatsapp")
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                    } else {
+                        android.util.Log.d("DeskZen", "WhatsApp voip entry not found for $phoneDigits")
+                        // Fallback: use tel: URI which WhatsApp can intercept
+                        Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:$phone")).apply {
+                            setPackage("com.whatsapp")
+                            putExtra("sms_body", "")
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                    }
+                } catch (e: Exception) {
+                    Timber.e(e, "WhatsApp call lookup failed")
+                    Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/${phone.removePrefix("+")}")).apply {
+                        setPackage("com.whatsapp")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
                 }
             }
             ContactAction.WHATSAPP_MESSAGE -> {
@@ -1165,6 +1305,55 @@ class LauncherViewModel @Inject constructor(
         }
     }
 
+    // === Wallpaper ===
+
+    private fun loadWallpaper() {
+        val prefs = context.getSharedPreferences("deskzen_prefs", Context.MODE_PRIVATE)
+        val uriString = prefs.getString("wallpaper_uri", null) ?: return
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            wallpaperBitmap.value = decodeBitmapFromUriString(uriString)
+        }
+    }
+
+    fun setWallpaper(uri: android.net.Uri) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val destFile = java.io.File(context.filesDir, "wallpaper.jpg")
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    destFile.outputStream().use { output -> input.copyTo(output) }
+                }
+                val fileUri = android.net.Uri.fromFile(destFile).toString()
+                context.getSharedPreferences("deskzen_prefs", Context.MODE_PRIVATE)
+                    .edit().putString("wallpaper_uri", fileUri).apply()
+                wallpaperBitmap.value = decodeBitmapFromUriString(fileUri)
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to set wallpaper")
+            }
+        }
+    }
+
+    fun clearWallpaper() {
+        context.getSharedPreferences("deskzen_prefs", Context.MODE_PRIVATE)
+            .edit().remove("wallpaper_uri").apply()
+        java.io.File(context.filesDir, "wallpaper.jpg").delete()
+        wallpaperBitmap.value = null
+    }
+
+    private fun decodeBitmapFromUriString(uriString: String): android.graphics.Bitmap? {
+        return try {
+            val uri = android.net.Uri.parse(uriString)
+            val stream = if (uri.scheme == "file") {
+                java.io.File(uri.path!!).inputStream()
+            } else {
+                context.contentResolver.openInputStream(uri)
+            }
+            stream?.use { android.graphics.BitmapFactory.decodeStream(it) }
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to decode wallpaper")
+            null
+        }
+    }
+
     // === Backup/Restore ===
 
     fun exportBackup(): String {
@@ -1179,11 +1368,21 @@ class LauncherViewModel @Inject constructor(
         }
         val backupContacts = _uiState.value.quickContacts.map { contact ->
             contact?.let {
+                val photoBase64 = it.photoUri?.let { uri ->
+                    if (uri.startsWith("file://")) {
+                        try {
+                            val file = java.io.File(android.net.Uri.parse(uri).path!!)
+                            if (file.exists()) java.util.Base64.getEncoder().encodeToString(file.readBytes())
+                            else null
+                        } catch (_: Exception) { null }
+                    } else null
+                }
                 BackupQuickContact(
                     position = it.position,
                     contactName = it.contactName,
                     phoneNumber = it.phoneNumber,
-                    action = it.action.name
+                    action = it.action.name,
+                    photoBase64 = photoBase64
                 )
             }
         }
@@ -1206,13 +1405,23 @@ class LauncherViewModel @Inject constructor(
                 webFavicon = null  // favicon re-fetched lazily if needed
             )
         })
-        // Restore quick contacts
+        // Restore quick contacts (decode photos from Base64 if present)
         val restoredContacts = backupData.quickContacts.mapIndexed { idx, backup ->
             backup?.let {
+                val restoredPhotoUri = it.photoBase64?.let { b64 ->
+                    try {
+                        val bytes = java.util.Base64.getDecoder().decode(b64)
+                        val file = java.io.File(context.filesDir, "contact_photo_restored_$idx.jpg")
+                        file.writeBytes(bytes)
+                        "file://${file.absolutePath}"
+                    } catch (_: Exception) { null }
+                }
                 QuickContact(
                     position = idx,
                     contactName = it.contactName,
                     phoneNumber = it.phoneNumber,
+                    photoUri = restoredPhotoUri,
+                    originalPhotoUri = restoredPhotoUri,
                     action = try { ContactAction.valueOf(it.action) } catch (_: Exception) { ContactAction.CALL_PHONE }
                 )
             }

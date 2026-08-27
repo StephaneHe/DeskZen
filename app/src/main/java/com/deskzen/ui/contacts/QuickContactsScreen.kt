@@ -5,10 +5,12 @@ import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,6 +36,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -64,9 +67,10 @@ import com.deskzen.ui.theme.SoloPurple
 @Composable
 fun QuickContactsScreen(viewModel: LauncherViewModel) {
     val uiState by viewModel.uiState.collectAsState()
+    val wallpaperBitmap by viewModel.wallpaperBitmap.collectAsState()
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
-    var configPosition by remember { mutableIntStateOf(-1) }
+    var configPosition by rememberSaveable { mutableIntStateOf(-1) }
 
     // Permission launcher for READ_CONTACTS
     val contactsPermissionLauncher = rememberLauncherForActivityResult(
@@ -82,22 +86,37 @@ fun QuickContactsScreen(viewModel: LauncherViewModel) {
         // Permission result handled
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFF050810),
-                        Color(0xFF0A1543),
-                        Color(0xFF0D0D2B),
-                        Color(0xFF1A0A2E),
-                        Color(0xFF0A1543),
-                        Color(0xFF050810)
-                    )
-                )
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (wallpaperBitmap != null) {
+            Image(
+                bitmap = wallpaperBitmap!!.asImageBitmap(),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
             )
-    ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.35f))
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color(0xFF050810),
+                                Color(0xFF0A1543),
+                                Color(0xFF0D0D2B),
+                                Color(0xFF1A0A2E),
+                                Color(0xFF0A1543),
+                                Color(0xFF050810)
+                            )
+                        )
+                    )
+            )
+        }
         LazyVerticalGrid(
             columns = GridCells.Fixed(4),
             modifier = Modifier
@@ -165,6 +184,7 @@ fun QuickContactsScreen(viewModel: LauncherViewModel) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun FilledContactSlot(
     contact: QuickContact,
@@ -173,9 +193,14 @@ fun FilledContactSlot(
 ) {
     val context = LocalContext.current
     val photoBitmap = remember(contact.photoUri) {
-        contact.photoUri?.let { uri ->
+        contact.photoUri?.let { uriString ->
             try {
-                val inputStream = context.contentResolver.openInputStream(android.net.Uri.parse(uri))
+                val parsedUri = android.net.Uri.parse(uriString)
+                val inputStream = if (parsedUri.scheme == "file") {
+                    java.io.File(parsedUri.path!!).inputStream()
+                } else {
+                    context.contentResolver.openInputStream(parsedUri)
+                }
                 inputStream?.use { BitmapFactory.decodeStream(it)?.asImageBitmap() }
             } catch (e: Exception) {
                 null
@@ -199,7 +224,10 @@ fun FilledContactSlot(
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
-            .clickable(onClick = onClick)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            )
             .padding(4.dp)
     ) {
         // Photo

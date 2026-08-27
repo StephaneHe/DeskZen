@@ -20,7 +20,8 @@ data class BackupQuickContact(
     val position: Int,
     val contactName: String,
     val phoneNumber: String,
-    val action: String
+    val action: String,
+    val photoBase64: String? = null
 )
 
 data class BackupData(
@@ -73,6 +74,7 @@ object BackupManager {
                 obj.put("name", contact.contactName)
                 obj.put("phone", contact.phoneNumber)
                 obj.put("action", contact.action)
+                contact.photoBase64?.let { obj.put("photoBase64", it) }
                 contactsArray.put(obj)
             }
         }
@@ -128,7 +130,8 @@ object BackupManager {
                             position = pos,
                             contactName = obj.getString("name"),
                             phoneNumber = obj.getString("phone"),
-                            action = obj.optString("action", "CALL_PHONE")
+                            action = obj.optString("action", "CALL_PHONE"),
+                            photoBase64 = obj.optString("photoBase64").ifEmpty { null }
                         )
                     }
                 }

@@ -1,8 +1,19 @@
 package com.deskzen.ui.launcher
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -12,7 +23,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,7 +47,10 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -45,6 +59,9 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Wallpaper
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -122,70 +139,141 @@ fun LauncherScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val badgeCounts by viewModel.badgeCounts.collectAsState()
+    val wallpaperBitmap by viewModel.wallpaperBitmap.collectAsState()
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     var appToMove by remember { mutableStateOf<String?>(null) }
     // Web shortcut dialog state: Pair(pageIndex, position) or null
     var webShortcutTarget by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+    // Empty cell context menu state: Pair(pageIndex, position) or null
+    var emptyCellMenuTarget by remember { mutableStateOf<Pair<Int, Int>?>(null) }
 
-    // Landscape mode: show quick contacts screen
-    if (isLandscape) {
-        QuickContactsScreen(viewModel = viewModel)
-        return
+    val wallpaperPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            result.data?.data?.let { uri -> viewModel.setWallpaper(uri) }
+        }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        // Solo Leveling wallpaper
+    // Ambient mode state — reset to invisible on every resume (unlock)
+    var iconsVisible by remember { mutableStateOf(false) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) iconsVisible = false
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    val iconAlpha by animateFloatAsState(
+        targetValue = if (iconsVisible) 1f else 0.06f,
+        animationSpec = tween(180),
+        label = "iconAlpha"
+    )
+    val overlayAlpha by animateFloatAsState(
+        targetValue = if (iconsVisible) 0.52f else 0.35f,
+        animationSpec = tween(180),
+        label = "overlayAlpha"
+    )
+
+    AnimatedContent(
+        targetState = isLandscape,
+        transitionSpec = { fadeIn() togetherWith fadeOut() },
+        label = "orientation_switch"
+    ) { landscape ->
+        if (landscape) {
+            QuickContactsScreen(viewModel = viewModel)
+        } else {
+
+    Box(modifier = Modifier
+        .fillMaxSize()
+        .pointerInput(Unit) {
+            // Initial pass fires before any child — detects double tap regardless of icon state.
+            // On double tap, consume the event so children (folders, icons) don't also react.
+            awaitPointerEventScope {
+                var lastTap = 0L
+                while (true) {
+                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                    val isDown = event.changes.any { it.pressed && !it.previousPressed }
+                    if (isDown) {
+                        val now = System.currentTimeMillis()
+                        if (now - lastTap < 350L && lastTap > 0L) {
+                            event.changes.forEach { it.consume() }
+                            iconsVisible = !iconsVisible
+                            lastTap = 0L
+                        } else {
+                            lastTap = now
+                        }
+                    }
+                }
+            }
+        }
+    ) {
+        // Background: custom wallpaper or default Solo Leveling gradient
+        if (wallpaperBitmap != null) {
+            Image(
+                bitmap = wallpaperBitmap!!.asImageBitmap(),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color(0xFF050810),
+                                Color(0xFF0A1543),
+                                Color(0xFF0D0D2B),
+                                Color(0xFF1A0A2E),
+                                Color(0xFF0A1543),
+                                Color(0xFF050810)
+                            )
+                        )
+                    )
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.radialGradient(
+                                colors = listOf(SoloPurple.copy(alpha = 0.08f), Color.Transparent),
+                                center = Offset(540f, 600f),
+                                radius = 800f
+                            )
+                        )
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.radialGradient(
+                                colors = listOf(SoloElectricBlue.copy(alpha = 0.06f), Color.Transparent),
+                                center = Offset(540f, 1800f),
+                                radius = 600f
+                            )
+                        )
+                )
+            }
+        }
+
+        // Dim overlay — animates for BOTH wallpaper and gradient
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color(0xFF050810),
-                            Color(0xFF0A1543),
-                            Color(0xFF0D0D2B),
-                            Color(0xFF1A0A2E),
-                            Color(0xFF0A1543),
-                            Color(0xFF050810)
-                        )
-                    )
-                )
-        ) {
-            // Purple aura glow
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.radialGradient(
-                            colors = listOf(
-                                SoloPurple.copy(alpha = 0.08f),
-                                Color.Transparent
-                            ),
-                            center = Offset(540f, 600f),
-                            radius = 800f
-                        )
-                    )
-            )
-            // Blue glow bottom
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.radialGradient(
-                            colors = listOf(
-                                SoloElectricBlue.copy(alpha = 0.06f),
-                                Color.Transparent
-                            ),
-                            center = Offset(540f, 1800f),
-                            radius = 600f
-                        )
-                    )
-            )
-        }
+                .background(Color.Black.copy(alpha = overlayAlpha))
+        )
 
-        // Home screen pages
+        // Home screen pages — ambient opacity only, no pointer blocking here
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .alpha(iconAlpha)
+        ) {
         HomeScreenContent(
             pages = uiState.pages,
             currentPageIndex = uiState.currentPage,
@@ -199,7 +287,7 @@ fun LauncherScreen(
             onDockAppClick = viewModel::launchApp,
             onDockAppLongClick = { pos -> viewModel.removeDockApp(pos) },
             onWebShortcutClick = viewModel::openUrl,
-            onEmptyCellLongPress = { page, pos -> webShortcutTarget = Pair(page, pos) },
+            onEmptyCellLongPress = { page, pos -> emptyCellMenuTarget = Pair(page, pos) },
             onMoveItem = viewModel::moveItem,
             onInsertItem = viewModel::insertItem,
             onDropIntoFolder = viewModel::dropIntoFolder,
@@ -207,6 +295,19 @@ fun LauncherScreen(
             onRemoveFromScreen = viewModel::removeFromScreen,
             scrollToFirstPage = viewModel.scrollToFirstPage
         )
+        } // end ambient wrapper
+
+        // When icons hidden: full-screen overlay above icons catches ALL taps,
+        // double tap re-shows icons. Removed when icons are visible so icon taps work normally.
+        if (!iconsVisible) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        detectTapGestures(onDoubleTap = { iconsVisible = true })
+                    }
+            )
+        }
 
         // App drawer overlay
         AnimatedVisibility(
@@ -247,7 +348,6 @@ fun LauncherScreen(
                 },
                 onExportBackup = {
                     val json = viewModel.exportBackup()
-                    // Save to internal storage and show toast
                     val file = java.io.File(context.filesDir, "deskzen_backup.json")
                     file.writeText(json)
                     android.widget.Toast.makeText(context, "Sauvegarde: ${file.absolutePath}", android.widget.Toast.LENGTH_LONG).show()
@@ -265,6 +365,15 @@ fun LauncherScreen(
                     } else {
                         android.widget.Toast.makeText(context, "Aucune sauvegarde trouvée", android.widget.Toast.LENGTH_SHORT).show()
                     }
+                    viewModel.hideFolderManager()
+                },
+                onChangeWallpaper = {
+                    val pickIntent = android.content.Intent(android.content.Intent.ACTION_PICK).apply {
+                        type = "image/*"
+                    }
+                    wallpaperPickerLauncher.launch(
+                        android.content.Intent.createChooser(pickIntent, "Choisir un fond d'écran")
+                    )
                     viewModel.hideFolderManager()
                 },
                 onDismiss = viewModel::hideFolderManager
@@ -337,7 +446,29 @@ fun LauncherScreen(
             )
         }
 
-    }
+        // Empty cell action picker (web shortcut / wallpaper)
+        emptyCellMenuTarget?.let { (page, pos) ->
+            EmptyCellActionDialog(
+                onCreateWebShortcut = {
+                    emptyCellMenuTarget = null
+                    webShortcutTarget = Pair(page, pos)
+                },
+                onChangeWallpaper = {
+                    emptyCellMenuTarget = null
+                    val pickIntent = android.content.Intent(android.content.Intent.ACTION_PICK).apply {
+                        type = "image/*"
+                    }
+                    wallpaperPickerLauncher.launch(
+                        android.content.Intent.createChooser(pickIntent, "Choisir un fond d'écran")
+                    )
+                },
+                onDismiss = { emptyCellMenuTarget = null }
+            )
+        }
+
+    } // end Box
+        } // end else (portrait)
+    } // end AnimatedContent
 }
 
 @Composable
@@ -473,13 +604,6 @@ fun HomeScreenContent(
             .onGloballyPositioned { coords ->
                 parentRootOffset = coords.positionInRoot()
             }
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onDoubleTap = {
-                        com.deskzen.service.LockScreenService.lockScreen()
-                    }
-                )
-            }
             // Parent-level drag tracking: captures ALL pointer events during drag.
             // Uses PointerEventPass.Initial to intercept before children.
             // Does NOT wait for a new pointer down — the finger is already pressing.
@@ -552,8 +676,23 @@ fun HomeScreenContent(
         modifier = Modifier
             .fillMaxSize()
             .pointerInput(Unit) {
-                detectVerticalDragGestures { _, dragAmount ->
-                    if (dragAmount < -50 && !dragState.isDragging) onSwipeUp()
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val startPos = down.position
+                    var triggered = false
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Main)
+                        val change = event.changes.firstOrNull() ?: break
+                        if (!change.pressed) break
+                        val dx = change.position.x - startPos.x
+                        val dy = change.position.y - startPos.y
+                        // Yield to HorizontalPager if horizontal motion dominates
+                        if (kotlin.math.abs(dx) > kotlin.math.abs(dy) * 1.5f) break
+                        if (!triggered && dy < -50f && !dragState.isDragging) {
+                            onSwipeUp()
+                            triggered = true
+                        }
+                    }
                 }
             }
     ) {
@@ -563,7 +702,15 @@ fun HomeScreenContent(
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.weight(1f),
-            userScrollEnabled = !dragState.isDragging
+            userScrollEnabled = !dragState.isDragging,
+            beyondViewportPageCount = 1,
+            flingBehavior = PagerDefaults.flingBehavior(
+                state = pagerState,
+                snapAnimationSpec = spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessMedium
+                )
+            )
         ) { pageIndex ->
             if (pageIndex < pages.size) {
                 HomePageGrid(
@@ -842,7 +989,7 @@ fun HomePageGrid(
 
                                     // Long press confirmed
                                     if (item == null) {
-                                        // Empty cell → propose adding web shortcut
+                                        // Empty cell → open context menu (web shortcut / wallpaper)
                                         onEmptyCellLongPress(pageIndex, position)
                                         return@awaitEachGesture
                                     }
@@ -1477,4 +1624,59 @@ fun DockBar(
             }
         }
     }
+}
+
+/** Context menu shown on long-press of an empty home-screen cell */
+@Composable
+fun EmptyCellActionDialog(
+    onCreateWebShortcut: () -> Unit,
+    onChangeWallpaper: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = SoloSurface,
+        shape = RoundedCornerShape(16.dp),
+        title = { Text("Cellule vide", color = SoloGlow, fontWeight = FontWeight.Bold) },
+        text = {
+            Column {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onCreateWebShortcut)
+                        .padding(vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Language,
+                        contentDescription = null,
+                        tint = SoloElectricBlue,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Text("Créer un raccourci web", color = Color.White, fontSize = 15.sp)
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onChangeWallpaper)
+                        .padding(vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Wallpaper,
+                        contentDescription = null,
+                        tint = SoloElectricBlue,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Text("Changer le fond d'écran", color = Color.White, fontSize = 15.sp)
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Annuler", color = SoloTextMuted) }
+        }
+    )
 }

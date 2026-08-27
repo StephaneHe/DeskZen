@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Wallpaper
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -43,6 +44,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.deskzen.BuildConfig
 import com.deskzen.ui.theme.DeskZenDimens
 import com.deskzen.ui.theme.SoloDeepBlack
 import com.deskzen.ui.theme.SoloElectricBlue
@@ -62,6 +64,7 @@ fun FolderManagerSheet(
     onReDispatch: () -> Unit,
     onExportBackup: () -> Unit,
     onImportBackup: () -> Unit,
+    onChangeWallpaper: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -135,6 +138,17 @@ fun FolderManagerSheet(
                 ) { Text("Restaurer", fontSize = 12.sp) }
             }
 
+            Spacer(modifier = Modifier.height(DeskZenDimens.spacingSm))
+
+            OutlinedButton(
+                onClick = onChangeWallpaper,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = SoloElectricBlue)
+            ) {
+                Icon(Icons.Default.Wallpaper, null, modifier = Modifier.padding(end = 4.dp))
+                Text("Changer le fond d'écran", fontSize = 12.sp)
+            }
+
             Spacer(modifier = Modifier.height(DeskZenDimens.spacingMd))
 
             // Folder list
@@ -172,6 +186,16 @@ fun FolderManagerSheet(
             }
 
             Spacer(modifier = Modifier.height(DeskZenDimens.spacingMd))
+
+            Text(
+                text = "DeskZen v${BuildConfig.VERSION_NAME}",
+                style = MaterialTheme.typography.bodySmall,
+                color = SoloTextMuted.copy(alpha = 0.6f),
+                fontSize = 11.sp,
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(DeskZenDimens.spacingSm))
         }
     }
 
