@@ -5,6 +5,17 @@ All notable changes to DeskZen will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-09-04
+
+### Added
+- Anti-accidental-call confirmation on the landscape quick-contacts screen. Tapping a
+  speed-dial contact no longer starts the call/message directly: it opens a large,
+  legible confirmation overlay ("Appeler <name> ?") with an unambiguous confirm button
+  and a cancel button. The action fires only on deliberate confirmation. The overlay
+  auto-cancels after 10 s and on any tap outside the card, so a stray touch (pocket,
+  dashboard) can never place a call. Applies to all speed-dial actions (phone call,
+  WhatsApp call/message, SMS).
+
 ## [1.1.2] - 2026-08-27
 
 ### Fixed
