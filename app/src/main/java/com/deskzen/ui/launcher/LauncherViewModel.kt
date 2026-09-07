@@ -134,7 +134,11 @@ class LauncherViewModel @Inject constructor(
                             position = item.position,
                             packageName = item.packageName,
                             webUrl = item.webUrl,
-                            webLabel = item.webLabel
+                            webLabel = item.webLabel,
+                            // Re-serve the favicon from disk cache immediately so the
+                            // icon never disappears on a process restart. Any still
+                            // missing one is re-fetched automatically after loadApps().
+                            webFavicon = item.webUrl?.let { loadFaviconFromDisk(it) }
                         )
                     })
                     // Restore quick contacts ONLY if SharedPreferences has none
@@ -186,6 +190,9 @@ class LauncherViewModel @Inject constructor(
                     isFirstLaunch = false
                 )
                 updateDockState()
+                // Auto-reload any web-shortcut favicon that isn't already served from
+                // the disk cache (new domain, cache cleared) — no manual refresh needed.
+                refreshWebShortcutFavicons()
             } catch (e: Exception) {
                 Timber.e(e, "Failed to load apps")
             }
@@ -740,6 +747,40 @@ class LauncherViewModel @Inject constructor(
         }
     }
 
+    // === Favicon disk cache ===
+    // Favicons are raw in-memory Bitmaps. Without a persistent copy they are lost
+    // when the launcher process is recreated (background kill, memory pressure),
+    // and the reloaded web shortcuts render with no icon until a manual refresh.
+    // We persist each favicon to a file keyed by URL so it can be re-served
+    // instantly on startup, and re-fetch automatically only on a cache miss.
+
+    private fun faviconCacheFile(url: String): java.io.File {
+        val digest = java.security.MessageDigest.getInstance("MD5")
+            .digest(url.toByteArray())
+            .joinToString("") { "%02x".format(it) }
+        return java.io.File(context.filesDir, "web_favicon_$digest.png")
+    }
+
+    private fun saveFaviconToDisk(url: String, bitmap: android.graphics.Bitmap) {
+        try {
+            faviconCacheFile(url).outputStream().use { out ->
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to cache favicon for $url")
+        }
+    }
+
+    private fun loadFaviconFromDisk(url: String): android.graphics.Bitmap? {
+        return try {
+            val file = faviconCacheFile(url)
+            if (file.exists()) android.graphics.BitmapFactory.decodeFile(file.absolutePath) else null
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to load cached favicon for $url")
+            null
+        }
+    }
+
     /** Fetch favicon for a URL. Tries: 1) direct /favicon.ico on site, 2) Google's service */
     private suspend fun fetchFavicon(url: String): android.graphics.Bitmap? {
         return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -759,6 +800,7 @@ class LauncherViewModel @Inject constructor(
                     val bitmap = fetchBitmapFromUrl(directUrl)
                     if (bitmap != null) {
                         Timber.d("Favicon from direct: $directUrl (${bitmap.width}x${bitmap.height})")
+                        saveFaviconToDisk(url, bitmap)
                         return@withContext bitmap
                     }
                 }
@@ -768,6 +810,7 @@ class LauncherViewModel @Inject constructor(
                 val bitmap = fetchBitmapFromUrl(googleUrl)
                 if (bitmap != null) {
                     Timber.d("Favicon from Google: ${bitmap.width}x${bitmap.height}")
+                    saveFaviconToDisk(url, bitmap)
                 }
                 bitmap
             } catch (e: Exception) {
@@ -1007,6 +1050,8 @@ class LauncherViewModel @Inject constructor(
             standaloneItems.removeAll { it.packageName == item.appInfo.packageName }
         } else if (item is ScreenItem.WebShortcut) {
             standaloneItems.removeAll { it.webUrl == item.url }
+            // Drop the cached favicon file so it doesn't linger orphaned.
+            try { faviconCacheFile(item.url).delete() } catch (_: Exception) {}
         }
 
         val filtered = page.items.filter { it.position != position }
@@ -1439,7 +1484,10 @@ class LauncherViewModel @Inject constructor(
         val itemsToRefresh = standaloneItems.filter { it.webUrl != null && it.webFavicon == null }
         for (item in itemsToRefresh) {
             viewModelScope.launch {
-                val favicon = fetchFavicon(item.webUrl!!) ?: return@launch
+                // Prefer the persistent disk cache; only hit the network on a miss.
+                val favicon = loadFaviconFromDisk(item.webUrl!!)
+                    ?: fetchFavicon(item.webUrl!!)
+                    ?: return@launch
                 val idx = standaloneItems.indexOf(item)
                 if (idx < 0) return@launch
                 standaloneItems[idx] = item.copy(webFavicon = favicon)

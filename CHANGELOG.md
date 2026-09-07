@@ -5,6 +5,18 @@ All notable changes to DeskZen will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-09-07
+
+### Fixed
+- Web-shortcut icons no longer disappear over time / after leaving and returning to
+  the launcher. Favicons were held only as in-memory `Bitmap`s, so when the launcher
+  process was recreated the reloaded shortcuts had no icon until a manual refresh
+  (`refreshWebShortcutFavicons()` only ran from the manual import path). Favicons are
+  now persisted to a per-URL disk cache in `filesDir` (`web_favicon_<md5>.png`), loaded
+  instantly when shortcuts are restored, and any still-missing one is re-fetched
+  automatically on startup (after `loadApps()`) — no manual refresh needed. The cache
+  file is removed when a web shortcut is deleted.
+
 ## [1.2.0] - 2026-09-04
 
 ### Added
