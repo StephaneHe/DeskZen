@@ -5,6 +5,16 @@ All notable changes to DeskZen will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-09-07
+
+### Added
+- Long-press a **web shortcut** on the home screen to open a context menu with a
+  **Supprimer** (delete) action — removes the shortcut and its cached favicon.
+- **Désinstaller** (uninstall) action in the app long-press menu (`MoveToFolderDialog`).
+  It launches the standard Android uninstall dialog (`ACTION_DELETE`, no special
+  permission). The option is hidden for system apps, and the home screen refreshes
+  automatically once the app is removed.
+
 ## [1.2.1] - 2026-09-07
 
 ### Fixed

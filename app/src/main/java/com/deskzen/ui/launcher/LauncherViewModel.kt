@@ -665,6 +665,26 @@ class LauncherViewModel @Inject constructor(
         context.startActivity(intent)
     }
 
+    /** True if [packageName] is a user-uninstallable (non-system) app. */
+    fun isUninstallable(packageName: String): Boolean =
+        _uiState.value.allApps.find { it.packageName == packageName }?.let { !it.isSystemApp } ?: false
+
+    /** Remove a web shortcut from the home screen by its URL (also clears its favicon cache). */
+    fun removeWebShortcut(url: String) {
+        val pages = _uiState.value.pages
+        for (i in pages.indices) {
+            val item = pages[i].items.firstOrNull { it is ScreenItem.WebShortcut && it.url == url }
+            if (item != null) {
+                // Reuses the standard removal path (drops standalone entry + favicon cache).
+                removeFromScreen(i, item.position)
+                return
+            }
+        }
+        // Not currently on a page — clean up any leftover tracking anyway.
+        standaloneItems.removeAll { it.webUrl == url }
+        try { faviconCacheFile(url).delete() } catch (_: Exception) {}
+    }
+
     fun uninstallApp(packageName: String) {
         val intent = Intent(Intent.ACTION_DELETE).apply {
             data = Uri.parse("package:$packageName")

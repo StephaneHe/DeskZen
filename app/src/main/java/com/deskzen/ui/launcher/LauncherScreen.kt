@@ -382,9 +382,29 @@ fun LauncherScreen(
 
         // Move app to folder dialog
         appToMove?.let { pkg ->
+          if (pkg.startsWith("web:")) {
+            val url = pkg.removePrefix("web:")
+            val webLabel = uiState.pages
+                .flatMap { it.items }
+                .filterIsInstance<ScreenItem.WebShortcut>()
+                .find { it.url == url }?.label ?: url
+            WebShortcutActionDialog(
+                label = webLabel,
+                onDelete = {
+                    viewModel.removeWebShortcut(url)
+                    appToMove = null
+                },
+                onDismiss = { appToMove = null }
+            )
+          } else {
             MoveToFolderDialog(
                 packageName = pkg,
                 appLabel = uiState.allApps.find { it.packageName == pkg }?.label ?: pkg,
+                canUninstall = viewModel.isUninstallable(pkg),
+                onUninstall = {
+                    viewModel.uninstallApp(pkg)
+                    appToMove = null
+                },
                 folders = viewModel.getAllFolderNames(),
                 shortcuts = viewModel.getAppShortcuts(pkg),
                 isLocked = viewModel.isAppLocked(pkg),
@@ -432,6 +452,7 @@ fun LauncherScreen(
                 },
                 onDismiss = { appToMove = null }
             )
+          }
         }
 
         // Web shortcut dialog
@@ -1627,6 +1648,45 @@ fun DockBar(
             }
         }
     }
+}
+
+/** Context menu shown on long-press of a web shortcut on the home screen */
+@Composable
+fun WebShortcutActionDialog(
+    label: String,
+    onDelete: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = SoloSurface,
+        shape = RoundedCornerShape(16.dp),
+        title = { Text(label, color = SoloGlow, fontWeight = FontWeight.Bold) },
+        text = {
+            Column {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onDelete)
+                        .padding(vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = null,
+                        tint = Color(0xFFE53935),
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Text("Supprimer", color = Color.White, fontSize = 15.sp)
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Annuler", color = SoloTextMuted) }
+        }
+    )
 }
 
 /** Context menu shown on long-press of an empty home-screen cell */

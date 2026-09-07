@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FolderOff
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
@@ -58,6 +59,8 @@ fun MoveToFolderDialog(
     onOpenInfo: () -> Unit,
     onLaunchShortcut: (ShortcutInfo) -> Unit = {},
     onToggleLock: () -> Unit = {},
+    canUninstall: Boolean = false,
+    onUninstall: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     AlertDialog(
@@ -222,6 +225,24 @@ fun MoveToFolderDialog(
                             if (isLocked) "Déverrouiller (l'IA peut déplacer)" else "Verrouiller ici (l'IA ne touchera plus)",
                             color = SoloGold
                         )
+                    }
+                }
+
+                // Uninstall — only for user (non-system) apps. System apps cannot be
+                // uninstalled, so the option is hidden rather than failing.
+                if (canUninstall) {
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onUninstall(); onDismiss() }
+                                .padding(vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Delete, null, tint = Color(0xFFE53935))
+                            Spacer(modifier = Modifier.width(DeskZenDimens.spacingMd))
+                            Text("Désinstaller", color = Color(0xFFE53935))
+                        }
                     }
                 }
 
