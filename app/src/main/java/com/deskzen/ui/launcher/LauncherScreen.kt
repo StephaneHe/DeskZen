@@ -380,35 +380,38 @@ fun LauncherScreen(
             )
         }
 
-        // Move app to folder dialog
+        // Long-press context menu — shared by apps and web shortcuts.
+        // Web shortcuts keep the full menu they had before (move to folder, dock,
+        // "Raccourci sur l'écran"), just with the app-only items (Informations,
+        // Verrouiller, Désinstaller) hidden and a "Supprimer" action added.
         appToMove?.let { pkg ->
-          if (pkg.startsWith("web:")) {
-            val url = pkg.removePrefix("web:")
-            val webLabel = uiState.pages
-                .flatMap { it.items }
-                .filterIsInstance<ScreenItem.WebShortcut>()
-                .find { it.url == url }?.label ?: url
-            WebShortcutActionDialog(
-                label = webLabel,
-                onDelete = {
-                    viewModel.removeWebShortcut(url)
-                    appToMove = null
-                },
-                onDismiss = { appToMove = null }
-            )
-          } else {
+            val isWeb = pkg.startsWith("web:")
+            val webUrl = if (isWeb) pkg.removePrefix("web:") else null
+            val label = if (isWeb) {
+                uiState.pages
+                    .flatMap { it.items }
+                    .filterIsInstance<ScreenItem.WebShortcut>()
+                    .find { it.url == webUrl }?.label ?: (webUrl ?: pkg)
+            } else {
+                uiState.allApps.find { it.packageName == pkg }?.label ?: pkg
+            }
             MoveToFolderDialog(
                 packageName = pkg,
-                appLabel = uiState.allApps.find { it.packageName == pkg }?.label ?: pkg,
-                canUninstall = viewModel.isUninstallable(pkg),
+                appLabel = label,
+                isWebShortcut = isWeb,
+                onDelete = {
+                    webUrl?.let { viewModel.removeWebShortcut(it) }
+                    appToMove = null
+                },
+                canUninstall = !isWeb && viewModel.isUninstallable(pkg),
                 onUninstall = {
                     viewModel.uninstallApp(pkg)
                     appToMove = null
                 },
                 folders = viewModel.getAllFolderNames(),
-                shortcuts = viewModel.getAppShortcuts(pkg),
-                isLocked = viewModel.isAppLocked(pkg),
-                currentFolderName = viewModel.getAppFolder(pkg),
+                shortcuts = if (isWeb) emptyList() else viewModel.getAppShortcuts(pkg),
+                isLocked = if (isWeb) false else viewModel.isAppLocked(pkg),
+                currentFolderName = if (isWeb) null else viewModel.getAppFolder(pkg),
                 dockPositions = viewModel.getDockPositions(),
                 currentDockApps = uiState.dockApps.map { it?.packageName },
                 onMoveToFolder = { folderName ->
@@ -452,7 +455,6 @@ fun LauncherScreen(
                 },
                 onDismiss = { appToMove = null }
             )
-          }
         }
 
         // Web shortcut dialog
@@ -1648,45 +1650,6 @@ fun DockBar(
             }
         }
     }
-}
-
-/** Context menu shown on long-press of a web shortcut on the home screen */
-@Composable
-fun WebShortcutActionDialog(
-    label: String,
-    onDelete: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = SoloSurface,
-        shape = RoundedCornerShape(16.dp),
-        title = { Text(label, color = SoloGlow, fontWeight = FontWeight.Bold) },
-        text = {
-            Column {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(onClick = onDelete)
-                        .padding(vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = null,
-                        tint = Color(0xFFE53935),
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Text("Supprimer", color = Color.White, fontSize = 15.sp)
-                }
-            }
-        },
-        confirmButton = {},
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Annuler", color = SoloTextMuted) }
-        }
-    )
 }
 
 /** Context menu shown on long-press of an empty home-screen cell */

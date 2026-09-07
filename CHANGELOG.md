@@ -5,6 +5,16 @@ All notable changes to DeskZen will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-09-07
+
+### Fixed
+- Web-shortcut long-press menu regression from 1.3.0: it had been replaced by a
+  minimal "Supprimer"-only dialog, losing the full menu (move to folder, dock
+  positions, "Raccourci sur l'écran"). Web shortcuts now use the full
+  `MoveToFolderDialog` again — with the app-only items that make no sense for a
+  web shortcut (Informations, Verrouiller, Désinstaller) hidden — plus the new
+  **Supprimer** action. The app long-press menu (with Désinstaller) is unchanged.
+
 ## [1.3.0] - 2026-09-07
 
 ### Added

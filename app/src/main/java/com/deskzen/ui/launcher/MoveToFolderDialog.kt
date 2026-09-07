@@ -61,6 +61,8 @@ fun MoveToFolderDialog(
     onToggleLock: () -> Unit = {},
     canUninstall: Boolean = false,
     onUninstall: () -> Unit = {},
+    isWebShortcut: Boolean = false,
+    onDelete: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     AlertDialog(
@@ -192,39 +194,61 @@ fun MoveToFolderDialog(
                     HorizontalDivider(color = SoloPurple.copy(alpha = 0.2f), modifier = Modifier.padding(vertical = 8.dp))
                 }
 
-                item {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onOpenInfo(); onDismiss() }
-                            .padding(vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Default.Info, null, tint = SoloTextMuted)
-                        Spacer(modifier = Modifier.width(DeskZenDimens.spacingMd))
-                        Text("Informations", color = Color.White)
+                // Informations — app-only (opens the system app settings), hidden for web shortcuts.
+                if (!isWebShortcut) {
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onOpenInfo(); onDismiss() }
+                                .padding(vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Info, null, tint = SoloTextMuted)
+                            Spacer(modifier = Modifier.width(DeskZenDimens.spacingMd))
+                            Text("Informations", color = Color.White)
+                        }
                     }
                 }
 
-                // Lock/unlock
-                item {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onToggleLock(); onDismiss() }
-                            .padding(vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            if (isLocked) Icons.Default.LockOpen else Icons.Default.Lock,
-                            null,
-                            tint = SoloGold
-                        )
-                        Spacer(modifier = Modifier.width(DeskZenDimens.spacingMd))
-                        Text(
-                            if (isLocked) "Déverrouiller (l'IA peut déplacer)" else "Verrouiller ici (l'IA ne touchera plus)",
-                            color = SoloGold
-                        )
+                // Lock/unlock — the IA only categorizes apps, so this is app-only.
+                if (!isWebShortcut) {
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onToggleLock(); onDismiss() }
+                                .padding(vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                if (isLocked) Icons.Default.LockOpen else Icons.Default.Lock,
+                                null,
+                                tint = SoloGold
+                            )
+                            Spacer(modifier = Modifier.width(DeskZenDimens.spacingMd))
+                            Text(
+                                if (isLocked) "Déverrouiller (l'IA peut déplacer)" else "Verrouiller ici (l'IA ne touchera plus)",
+                                color = SoloGold
+                            )
+                        }
+                    }
+                }
+
+                // Delete — web shortcuts only (removes the shortcut + its cached favicon).
+                if (isWebShortcut) {
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onDelete(); onDismiss() }
+                                .padding(vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Delete, null, tint = Color(0xFFE53935))
+                            Spacer(modifier = Modifier.width(DeskZenDimens.spacingMd))
+                            Text("Supprimer", color = Color(0xFFE53935))
+                        }
                     }
                 }
 
