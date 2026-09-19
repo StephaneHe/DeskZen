@@ -5,6 +5,17 @@ All notable changes to DeskZen will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.2] - 2026-09-19
+
+### Fixed
+- "Désinstaller" (app long-press menu) could crash the app or do nothing.
+  `uninstallApp()` fired a single `ACTION_DELETE` intent with no error handling,
+  so on ROMs where that action has no handler `startActivity` threw
+  `ActivityNotFoundException` (crash) or silently failed. It now tries both
+  `ACTION_DELETE` and `ACTION_UNINSTALL_PACKAGE` from a `NEW_TASK` intent, catches
+  per-action failures, and shows a message instead of crashing when no handler is
+  available. No special permission is required.
+
 ## [1.3.1] - 2026-09-07
 
 ### Fixed

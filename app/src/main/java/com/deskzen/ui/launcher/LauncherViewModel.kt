@@ -685,12 +685,44 @@ class LauncherViewModel @Inject constructor(
         try { faviconCacheFile(url).delete() } catch (_: Exception) {}
     }
 
+    /**
+     * Launch the system uninstall confirmation for [packageName].
+     *
+     * Previously this fired a single ACTION_DELETE intent with no error handling:
+     * on ROMs where that action has no handler, startActivity threw
+     * ActivityNotFoundException and crashed the app (or silently did nothing).
+     * We now try both the standard uninstall actions from a NEW_TASK intent
+     * (required from the application context), swallow per-action failures, and
+     * surface a message instead of crashing if none can be launched.
+     * No special permission is required for these interactive intents.
+     */
     fun uninstallApp(packageName: String) {
-        val intent = Intent(Intent.ACTION_DELETE).apply {
-            data = Uri.parse("package:$packageName")
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (packageName.isBlank() ||
+            packageName.startsWith("web:") ||
+            packageName.startsWith("folder:")
+        ) return
+
+        val uri = Uri.parse("package:$packageName")
+        val actions = listOf(Intent.ACTION_DELETE, Intent.ACTION_UNINSTALL_PACKAGE)
+        for (action in actions) {
+            try {
+                val intent = Intent(action, uri).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(intent)
+                return
+            } catch (e: android.content.ActivityNotFoundException) {
+                Timber.w("Uninstall via $action not handled for $packageName")
+            } catch (e: Exception) {
+                Timber.e(e, "Uninstall via $action failed for $packageName")
+            }
         }
-        context.startActivity(intent)
+        // No handler on this device — tell the user instead of failing silently.
+        android.widget.Toast.makeText(
+            context,
+            "Impossible de lancer la désinstallation de cette application",
+            android.widget.Toast.LENGTH_SHORT
+        ).show()
     }
 
     fun getAppShortcuts(packageName: String): List<android.content.pm.ShortcutInfo> {
