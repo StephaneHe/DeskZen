@@ -31,6 +31,10 @@ local.properties
 !gradle/wrapper/gradle-wrapper.jar
 
 # Claude Code — local/personal, never version (leaks device IP/serial, machine paths)
+.claude/settings.json
 .claude/settings.local.json
 .claude/worktrees/
 CLAUDE.md
+
+# Internal audit notes (infra details) — local only
+docs/CLEANUP_PLAN.md
